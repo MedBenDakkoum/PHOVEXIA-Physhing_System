@@ -1,0 +1,45 @@
+# Secrets
+.env
+*.env
+!.env.example
+
+# Environnement virtuel
+phishing_env/
+venv/
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Django
+db.sqlite3
+*.log
+media/
+staticfiles/
+
+# Celery
+celerybeat-schedule*
+
+# Deep learning (gros fichiers)
+data/
+datasets/
+*.pt
+*.pth
+*.onnx
+*.ckpt
+mlruns/
+
+# Frontend (plus tard)
+node_modules/
+dist/
+build/
+
+# IDE et système
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
