@@ -1,0 +1,455 @@
+{
+  "_help": [
+    "password : mot de passe de tous les utilisateurs créés avant chaque scénario.",
+    "users   : utilisateurs créés avant chaque scénario (clé -> champs). On y fait référence par leur clé.",
+    "cases   : liste de scénarios. Un scénario = une requête, ou plusieurs dans 'steps'.",
+    "Champs d'une requête : url (nom de la route), args, method (défaut post), auth (clé d'un user, authentification directe), bearer (token JWT), data, params (GET), save, expect, db.",
+    "$nom    : valeur sauvegardée par 'save' dans une étape précédente ($PASSWORD est prédéfini).",
+    "@cle    : identifiant (pk) de l'utilisateur 'cle', pour les URL de détail.",
+    "save    : {\"variable\": \"cle_de_la_reponse\"}.",
+    "remote_addr : adresse IP simulée du client pour cette requête.",
+    "expect  : status, has_keys, missing_keys, json (sous-ensemble exact), emails_equal, contains_emails, results_count (éléments de la page), total_count (champ count), all_match / first_match (champs des éléments d'une liste).",
+    "save    : accepte un chemin pointé, ex. 'results.0.id'.",
+    "audit   : liste de vérifications du journal : action, user, user_email, target_type, target_id, target_repr, ip_address, metadata, count (défaut 1 ; 0 = ne doit PAS exister).",
+    "db      : liste de vérifications en base : email, exists, role, is_active, is_staff, first_name, password_ok."
+  ],
+
+  "password": "StrongPass!234",
+
+  "users": {
+    "viewer":   {"email": "viewer@example.com",  "role": "viewer"},
+    "analyst":  {"email": "analyst@example.com", "role": "analyst"},
+    "admin":    {"email": "admin@example.com",   "role": "admin"},
+    "inactive": {"email": "off@example.com",     "role": "viewer", "is_active": false},
+    "alice":    {"email": "alice@example.com",   "role": "viewer", "first_name": "Alice"},
+    "bob":      {"email": "bob@example.com",     "role": "viewer", "first_name": "Bob"}
+  },
+
+  "cases": [
+
+    {"name": "register_success", "url": "register",
+     "data": {"email": "new@example.com", "password": "$PASSWORD", "first_name": "Eya", "last_name": "Test"},
+     "expect": {"status": 201, "missing_keys": ["password"]},
+     "db": [{"email": "new@example.com", "role": "viewer", "password_ok": "$PASSWORD"}]},
+
+    {"name": "register_cannot_choose_role", "url": "register",
+     "data": {"email": "new@example.com", "password": "$PASSWORD", "role": "admin", "is_staff": true},
+     "expect": {"status": 201},
+     "db": [{"email": "new@example.com", "role": "viewer", "is_staff": false}]},
+
+    {"name": "register_email_normalized", "url": "register",
+     "data": {"email": "New@Example.COM", "password": "$PASSWORD"},
+     "expect": {"status": 201},
+     "db": [{"email": "new@example.com", "exists": true}]},
+
+    {"name": "register_duplicate_email_case_insensitive", "url": "register",
+     "data": {"email": "VIEWER@example.com", "password": "$PASSWORD"},
+     "expect": {"status": 400, "has_keys": ["email"]}},
+
+    {"name": "register_weak_password", "url": "register",
+     "data": {"email": "new@example.com", "password": "123"},
+     "expect": {"status": 400, "has_keys": ["password"]},
+     "db": [{"email": "new@example.com", "exists": false}]},
+
+    {"name": "register_missing_email", "url": "register",
+     "data": {"password": "$PASSWORD"},
+     "expect": {"status": 400, "has_keys": ["email"]}},
+
+    {"name": "register_invalid_email", "url": "register",
+     "data": {"email": "pas-un-email", "password": "$PASSWORD"},
+     "expect": {"status": 400, "has_keys": ["email"]}},
+
+
+    {"name": "login_success", "url": "login",
+     "data": {"email": "viewer@example.com", "password": "$PASSWORD"},
+     "expect": {"status": 200, "has_keys": ["access", "refresh"]}},
+
+    {"name": "login_wrong_password", "url": "login",
+     "data": {"email": "viewer@example.com", "password": "mauvais"},
+     "expect": {"status": 401}},
+
+    {"name": "login_unknown_user", "url": "login",
+     "data": {"email": "inconnu@example.com", "password": "$PASSWORD"},
+     "expect": {"status": 401}},
+
+    {"name": "login_inactive_user", "url": "login",
+     "data": {"email": "off@example.com", "password": "$PASSWORD"},
+     "expect": {"status": 401}},
+
+    {"name": "refresh_returns_new_access",
+     "steps": [
+       {"url": "login", "data": {"email": "viewer@example.com", "password": "$PASSWORD"},
+        "save": {"refresh": "refresh"}, "expect": {"status": 200}},
+       {"url": "token_refresh", "data": {"refresh": "$refresh"},
+        "expect": {"status": 200, "has_keys": ["access"]}}
+     ]},
+
+    {"name": "refresh_rotation_blacklists_old_token",
+     "steps": [
+       {"url": "login", "data": {"email": "viewer@example.com", "password": "$PASSWORD"},
+        "save": {"old": "refresh"}, "expect": {"status": 200}},
+       {"url": "token_refresh", "data": {"refresh": "$old"},
+        "expect": {"status": 200, "has_keys": ["access", "refresh"]}},
+       {"url": "token_refresh", "data": {"refresh": "$old"},
+        "expect": {"status": 401}}
+     ]},
+
+    {"name": "access_token_grants_access",
+     "steps": [
+       {"url": "login", "data": {"email": "viewer@example.com", "password": "$PASSWORD"},
+        "save": {"access": "access"}, "expect": {"status": 200}},
+       {"url": "me", "method": "get", "bearer": "$access",
+        "expect": {"status": 200, "json": {"email": "viewer@example.com"}}}
+     ]},
+
+
+    {"name": "logout_blacklists_refresh",
+     "steps": [
+       {"url": "login", "data": {"email": "viewer@example.com", "password": "$PASSWORD"},
+        "save": {"access": "access", "refresh": "refresh"}, "expect": {"status": 200}},
+       {"url": "logout", "bearer": "$access", "data": {"refresh": "$refresh"},
+        "expect": {"status": 204}},
+       {"url": "token_refresh", "data": {"refresh": "$refresh"},
+        "expect": {"status": 401}}
+     ]},
+
+    {"name": "logout_invalid_token", "url": "logout", "auth": "viewer",
+     "data": {"refresh": "n-importe-quoi"}, "expect": {"status": 400}},
+
+    {"name": "logout_missing_token", "url": "logout", "auth": "viewer",
+     "data": {}, "expect": {"status": 400}},
+
+    {"name": "logout_requires_auth", "url": "logout",
+     "data": {"refresh": "x"}, "expect": {"status": 401}},
+
+
+    {"name": "me_requires_auth", "url": "me", "method": "get",
+     "expect": {"status": 401}},
+
+    {"name": "me_get_profile", "url": "me", "method": "get", "auth": "viewer",
+     "expect": {"status": 200, "json": {"email": "viewer@example.com", "role": "viewer"},
+                "missing_keys": ["password"]}},
+
+    {"name": "me_patch_names", "url": "me", "method": "patch", "auth": "viewer",
+     "data": {"first_name": "Eya"},
+     "expect": {"status": 200},
+     "db": [{"email": "viewer@example.com", "first_name": "Eya"}]},
+
+    {"name": "me_cannot_escalate_role", "url": "me", "method": "patch", "auth": "viewer",
+     "data": {"role": "admin"},
+     "expect": {"status": 200},
+     "db": [{"email": "viewer@example.com", "role": "viewer"}]},
+
+    {"name": "me_cannot_change_email", "url": "me", "method": "patch", "auth": "viewer",
+     "data": {"email": "autre@example.com"},
+     "expect": {"status": 200},
+     "db": [{"email": "autre@example.com", "exists": false},
+            {"email": "viewer@example.com", "exists": true}]},
+
+
+    {"name": "change_password_requires_auth", "url": "change_password",
+     "data": {"old_password": "a", "new_password": "b"},
+     "expect": {"status": 401}},
+
+    {"name": "change_password_success",
+     "steps": [
+       {"url": "change_password", "auth": "viewer",
+        "data": {"old_password": "$PASSWORD", "new_password": "AnotherStrong!567"},
+        "expect": {"status": 204},
+        "db": [{"email": "viewer@example.com", "password_ok": "AnotherStrong!567"}]},
+       {"url": "login", "data": {"email": "viewer@example.com", "password": "AnotherStrong!567"},
+        "expect": {"status": 200, "has_keys": ["access"]}},
+       {"url": "login", "data": {"email": "viewer@example.com", "password": "$PASSWORD"},
+        "expect": {"status": 401}}
+     ]},
+
+    {"name": "change_password_wrong_old", "url": "change_password", "auth": "viewer",
+     "data": {"old_password": "faux", "new_password": "AnotherStrong!567"},
+     "expect": {"status": 400, "has_keys": ["old_password"]},
+     "db": [{"email": "viewer@example.com", "password_ok": "$PASSWORD"}]},
+
+    {"name": "change_password_weak_new", "url": "change_password", "auth": "viewer",
+     "data": {"old_password": "$PASSWORD", "new_password": "123"},
+     "expect": {"status": 400, "has_keys": ["new_password"]}},
+
+
+    {"name": "admin_list_anonymous_denied", "url": "user-list", "method": "get",
+     "expect": {"status": 401}},
+
+    {"name": "admin_list_viewer_forbidden", "url": "user-list", "method": "get", "auth": "viewer",
+     "expect": {"status": 403}},
+
+    {"name": "admin_list_analyst_forbidden", "url": "user-list", "method": "get", "auth": "analyst",
+     "expect": {"status": 403}},
+
+    {"name": "admin_can_list", "url": "user-list", "method": "get", "auth": "admin",
+     "expect": {"status": 200,
+                "contains_emails": ["admin@example.com", "viewer@example.com", "analyst@example.com"]}},
+
+    {"name": "admin_filter_by_role", "url": "user-list", "method": "get", "auth": "admin",
+     "params": {"role": "analyst"},
+     "expect": {"status": 200, "emails_equal": ["analyst@example.com"]}},
+
+    {"name": "admin_filter_by_is_active", "url": "user-list", "method": "get", "auth": "admin",
+     "params": {"is_active": "false"},
+     "expect": {"status": 200, "emails_equal": ["off@example.com"]}},
+
+    {"name": "admin_search", "url": "user-list", "method": "get", "auth": "admin",
+     "params": {"search": "alice"},
+     "expect": {"status": 200, "emails_equal": ["alice@example.com"]}},
+
+    {"name": "admin_retrieve", "url": "user-detail", "args": ["@viewer"], "method": "get", "auth": "admin",
+     "expect": {"status": 200, "json": {"email": "viewer@example.com", "role": "viewer"}}},
+
+    {"name": "admin_can_change_role", "url": "user-detail", "args": ["@viewer"], "method": "patch", "auth": "admin",
+     "data": {"role": "analyst"},
+     "expect": {"status": 200},
+     "db": [{"email": "viewer@example.com", "role": "analyst"}]},
+
+    {"name": "admin_cannot_change_email", "url": "user-detail", "args": ["@viewer"], "method": "patch", "auth": "admin",
+     "data": {"email": "x@example.com"},
+     "expect": {"status": 200},
+     "db": [{"email": "x@example.com", "exists": false},
+            {"email": "viewer@example.com", "exists": true}]},
+
+    {"name": "admin_invalid_role_rejected", "url": "user-detail", "args": ["@viewer"], "method": "patch", "auth": "admin",
+     "data": {"role": "superman"},
+     "expect": {"status": 400, "has_keys": ["role"]},
+     "db": [{"email": "viewer@example.com", "role": "viewer"}]},
+
+    {"name": "admin_delete_deactivates_instead_of_removing",
+     "steps": [
+       {"url": "user-detail", "args": ["@viewer"], "method": "delete", "auth": "admin",
+        "expect": {"status": 204},
+        "db": [{"email": "viewer@example.com", "exists": true, "is_active": false}]},
+       {"url": "login", "data": {"email": "viewer@example.com", "password": "$PASSWORD"},
+        "expect": {"status": 401}}
+     ]},
+
+    {"name": "viewer_cannot_modify_others", "url": "user-detail", "args": ["@analyst"], "method": "patch", "auth": "viewer",
+     "data": {"role": "admin"},
+     "expect": {"status": 403},
+     "db": [{"email": "analyst@example.com", "role": "analyst"}]},
+
+    {"name": "admin_no_create_via_users_endpoint", "url": "user-list", "auth": "admin",
+     "data": {"email": "x@example.com"},
+     "expect": {"status": 405}},
+
+
+    {"name": "US46_register_is_logged", "url": "register", "remote_addr": "198.51.100.7",
+     "data": {"email": "new@example.com", "password": "$PASSWORD"},
+     "expect": {"status": 201},
+     "audit": [{"action": "register", "user_email": "new@example.com", "target_type": "user",
+                "target_repr": "new@example.com", "ip_address": "198.51.100.7", "count": 1}]},
+
+    {"name": "US46_failed_register_is_not_logged", "url": "register",
+     "data": {"email": "new@example.com", "password": "123"},
+     "expect": {"status": 400},
+     "audit": [{"action": "register", "count": 0}]},
+
+    {"name": "US46_login_success_is_logged", "url": "login", "remote_addr": "203.0.113.9",
+     "data": {"email": "viewer@example.com", "password": "$PASSWORD"},
+     "expect": {"status": 200},
+     "audit": [{"action": "login_success", "user": "@viewer", "user_email": "viewer@example.com",
+                "ip_address": "203.0.113.9", "count": 1},
+               {"action": "login_failed", "count": 0}]},
+
+    {"name": "US46_login_wrong_password_is_logged", "url": "login", "remote_addr": "203.0.113.50",
+     "data": {"email": "viewer@example.com", "password": "mauvais"},
+     "expect": {"status": 401},
+     "audit": [{"action": "login_failed", "user": "@viewer", "user_email": "viewer@example.com",
+                "ip_address": "203.0.113.50", "count": 1},
+               {"action": "login_success", "count": 0}]},
+
+    {"name": "US46_login_unknown_email_is_logged", "url": "login",
+     "data": {"email": "Inconnu@Example.com", "password": "$PASSWORD"},
+     "expect": {"status": 401},
+     "audit": [{"action": "login_failed", "user_email": "inconnu@example.com", "count": 1}]},
+
+    {"name": "US46_login_suspended_account_is_logged", "url": "login",
+     "data": {"email": "off@example.com", "password": "$PASSWORD"},
+     "expect": {"status": 401},
+     "audit": [{"action": "login_failed", "user": "@inactive", "count": 1}]},
+
+    {"name": "US46_login_invalid_payload_is_not_logged", "url": "login",
+     "data": {"email": "viewer@example.com"},
+     "expect": {"status": 400},
+     "audit": [{"action": "login_failed", "count": 0}, {"action": "login_success", "count": 0}]},
+
+    {"name": "US46_role_change_is_logged_with_old_and_new", "url": "user-detail", "args": ["@viewer"],
+     "method": "patch", "auth": "admin", "remote_addr": "192.0.2.10", "data": {"role": "analyst"},
+     "expect": {"status": 200},
+     "audit": [{"action": "role_change", "user": "@admin", "user_email": "admin@example.com",
+                "target_type": "user", "target_id": "@viewer", "target_repr": "viewer@example.com",
+                "ip_address": "192.0.2.10", "metadata": {"old": "viewer", "new": "analyst"}, "count": 1}]},
+
+    {"name": "US46_same_role_is_not_logged", "url": "user-detail", "args": ["@viewer"],
+     "method": "patch", "auth": "admin", "data": {"role": "viewer"},
+     "expect": {"status": 200},
+     "audit": [{"action": "role_change", "count": 0}]},
+
+    {"name": "US46_other_field_change_is_not_logged", "url": "user-detail", "args": ["@viewer"],
+     "method": "patch", "auth": "admin", "data": {"first_name": "Eya"},
+     "expect": {"status": 200},
+     "audit": [{"action": "role_change", "count": 0}, {"action": "user_suspend", "count": 0}]},
+
+    {"name": "US46_rejected_role_change_is_not_logged", "url": "user-detail", "args": ["@viewer"],
+     "method": "patch", "auth": "admin", "data": {"role": "superman"},
+     "expect": {"status": 400},
+     "audit": [{"action": "role_change", "count": 0}]},
+
+    {"name": "US46_forbidden_role_change_is_not_logged", "url": "user-detail", "args": ["@analyst"],
+     "method": "patch", "auth": "viewer", "data": {"role": "admin"},
+     "expect": {"status": 403},
+     "audit": [{"action": "role_change", "count": 0}]},
+
+    {"name": "US46_suspension_via_patch_is_logged", "url": "user-detail", "args": ["@viewer"],
+     "method": "patch", "auth": "admin", "data": {"is_active": false},
+     "expect": {"status": 200},
+     "audit": [{"action": "user_suspend", "user": "@admin", "target_id": "@viewer", "count": 1}]},
+
+    {"name": "US46_suspension_via_delete_is_logged", "url": "user-detail", "args": ["@viewer"],
+     "method": "delete", "auth": "admin",
+     "expect": {"status": 204},
+     "audit": [{"action": "user_suspend", "user": "@admin", "target_id": "@viewer", "count": 1}]},
+
+    {"name": "US46_delete_already_suspended_is_not_logged", "url": "user-detail", "args": ["@inactive"],
+     "method": "delete", "auth": "admin",
+     "expect": {"status": 204},
+     "audit": [{"action": "user_suspend", "count": 0}]},
+
+    {"name": "US46_reactivation_is_logged", "url": "user-detail", "args": ["@inactive"],
+     "method": "patch", "auth": "admin", "data": {"is_active": true},
+     "expect": {"status": 200},
+     "audit": [{"action": "user_reactivate", "target_id": "@inactive", "count": 1}]},
+
+    {"name": "US46_entries_cannot_be_modified_or_deleted_via_api",
+     "steps": [
+       {"url": "login", "data": {"email": "viewer@example.com", "password": "$PASSWORD"},
+        "expect": {"status": 200}},
+       {"url": "auditlog-list", "method": "get", "auth": "admin",
+        "save": {"log_id": "results.0.id"}, "expect": {"status": 200, "results_count": 1}},
+       {"url": "auditlog-detail", "args": ["$log_id"], "method": "patch", "auth": "admin",
+        "data": {"action": "register"}, "expect": {"status": 405}},
+       {"url": "auditlog-detail", "args": ["$log_id"], "method": "put", "auth": "admin",
+        "data": {"action": "register"}, "expect": {"status": 405}},
+       {"url": "auditlog-detail", "args": ["$log_id"], "method": "delete", "auth": "admin",
+        "expect": {"status": 405},
+        "audit": [{"action": "login_success", "count": 1}]}
+     ]},
+
+
+    {"name": "US47_list_anonymous_denied", "url": "auditlog-list", "method": "get",
+     "expect": {"status": 401}},
+
+    {"name": "US47_list_viewer_forbidden", "url": "auditlog-list", "method": "get", "auth": "viewer",
+     "expect": {"status": 403}},
+
+    {"name": "US47_list_analyst_forbidden", "url": "auditlog-list", "method": "get", "auth": "analyst",
+     "expect": {"status": 403}},
+
+    {"name": "US47_admin_can_list_paginated", "url": "auditlog-list", "method": "get", "auth": "admin",
+     "expect": {"status": 200, "has_keys": ["count", "next", "previous", "results"], "total_count": 0}},
+
+    {"name": "US47_list_is_read_only", "url": "auditlog-list", "auth": "admin",
+     "data": {"action": "register"}, "expect": {"status": 405}},
+
+    {"name": "US47_admin_can_retrieve_one_entry",
+     "steps": [
+       {"url": "login", "remote_addr": "203.0.113.9",
+        "data": {"email": "viewer@example.com", "password": "$PASSWORD"}, "expect": {"status": 200}},
+       {"url": "auditlog-list", "method": "get", "auth": "admin",
+        "save": {"log_id": "results.0.id"}, "expect": {"status": 200}},
+       {"url": "auditlog-detail", "args": ["$log_id"], "method": "get", "auth": "admin",
+        "expect": {"status": 200,
+                   "has_keys": ["id", "created_at", "user", "user_email", "action", "action_label",
+                                "target_type", "target_id", "target_repr", "ip_address", "metadata"],
+                   "json": {"action": "login_success", "user_email": "viewer@example.com",
+                            "ip_address": "203.0.113.9"}}}
+     ]},
+
+    {"name": "US47_pagination",
+     "steps": [
+       {"url": "login", "data": {"email": "viewer@example.com", "password": "x1"}, "expect": {"status": 401}},
+       {"url": "login", "data": {"email": "viewer@example.com", "password": "x2"}, "expect": {"status": 401}},
+       {"url": "login", "data": {"email": "viewer@example.com", "password": "x3"}, "expect": {"status": 401}},
+       {"url": "auditlog-list", "method": "get", "auth": "admin", "params": {"page_size": 2},
+        "expect": {"status": 200, "results_count": 2, "total_count": 3, "has_keys": ["next"]}},
+       {"url": "auditlog-list", "method": "get", "auth": "admin", "params": {"page_size": 2, "page": 2},
+        "expect": {"status": 200, "results_count": 1, "total_count": 3}},
+       {"url": "auditlog-list", "method": "get", "auth": "admin", "params": {"page": 99},
+        "expect": {"status": 404}}
+     ]},
+
+    {"name": "US47_newest_first",
+     "steps": [
+       {"url": "login", "data": {"email": "viewer@example.com", "password": "mauvais"}, "expect": {"status": 401}},
+       {"url": "login", "data": {"email": "viewer@example.com", "password": "$PASSWORD"}, "expect": {"status": 200}},
+       {"url": "auditlog-list", "method": "get", "auth": "admin",
+        "expect": {"status": 200, "results_count": 2, "first_match": {"action": "login_success"}}}
+     ]},
+
+    {"name": "US47_filter_by_action",
+     "steps": [
+       {"url": "login", "data": {"email": "viewer@example.com", "password": "x1"}, "expect": {"status": 401}},
+       {"url": "login", "data": {"email": "viewer@example.com", "password": "x2"}, "expect": {"status": 401}},
+       {"url": "login", "data": {"email": "viewer@example.com", "password": "$PASSWORD"}, "expect": {"status": 200}},
+       {"url": "auditlog-list", "method": "get", "auth": "admin", "params": {"action": "login_failed"},
+        "expect": {"status": 200, "total_count": 2, "all_match": {"action": "login_failed"}}},
+       {"url": "auditlog-list", "method": "get", "auth": "admin", "params": {"action": "login_success"},
+        "expect": {"status": 200, "total_count": 1, "all_match": {"action": "login_success"}}}
+     ]},
+
+    {"name": "US47_filter_by_user_id",
+     "steps": [
+       {"url": "login", "data": {"email": "viewer@example.com", "password": "$PASSWORD"}, "expect": {"status": 200}},
+       {"url": "login", "data": {"email": "analyst@example.com", "password": "$PASSWORD"}, "expect": {"status": 200}},
+       {"url": "auditlog-list", "method": "get", "auth": "admin", "params": {"user": "@viewer"},
+        "expect": {"status": 200, "total_count": 1, "all_match": {"user_email": "viewer@example.com"}}}
+     ]},
+
+    {"name": "US47_filter_by_user_email",
+     "steps": [
+       {"url": "login", "data": {"email": "viewer@example.com", "password": "$PASSWORD"}, "expect": {"status": 200}},
+       {"url": "login", "data": {"email": "analyst@example.com", "password": "$PASSWORD"}, "expect": {"status": 200}},
+       {"url": "login", "data": {"email": "inconnu@example.com", "password": "x"}, "expect": {"status": 401}},
+       {"url": "auditlog-list", "method": "get", "auth": "admin", "params": {"user_email": "ANALYST"},
+        "expect": {"status": 200, "total_count": 1, "all_match": {"user_email": "analyst@example.com"}}},
+       {"url": "auditlog-list", "method": "get", "auth": "admin", "params": {"user_email": "inconnu@"},
+        "expect": {"status": 200, "total_count": 1, "all_match": {"action": "login_failed"}}}
+     ]},
+
+    {"name": "US47_filter_by_date",
+     "steps": [
+       {"url": "login", "data": {"email": "viewer@example.com", "password": "$PASSWORD"}, "expect": {"status": 200}},
+       {"url": "auditlog-list", "method": "get", "auth": "admin", "params": {"date_from": "2000-01-01"},
+        "expect": {"status": 200, "total_count": 1}},
+       {"url": "auditlog-list", "method": "get", "auth": "admin", "params": {"date_from": "2999-01-01"},
+        "expect": {"status": 200, "total_count": 0}},
+       {"url": "auditlog-list", "method": "get", "auth": "admin", "params": {"date_to": "2000-01-01"},
+        "expect": {"status": 200, "total_count": 0}},
+       {"url": "auditlog-list", "method": "get", "auth": "admin", "params": {"date_to": "2999-01-01"},
+        "expect": {"status": 200, "total_count": 1}},
+       {"url": "auditlog-list", "method": "get", "auth": "admin",
+        "params": {"date_from": "2000-01-01", "date_to": "2999-01-01"},
+        "expect": {"status": 200, "total_count": 1}}
+     ]},
+
+    {"name": "US47_filters_can_be_combined",
+     "steps": [
+       {"url": "login", "data": {"email": "viewer@example.com", "password": "x"}, "expect": {"status": 401}},
+       {"url": "login", "data": {"email": "analyst@example.com", "password": "x"}, "expect": {"status": 401}},
+       {"url": "login", "data": {"email": "viewer@example.com", "password": "$PASSWORD"}, "expect": {"status": 200}},
+       {"url": "auditlog-list", "method": "get", "auth": "admin",
+        "params": {"action": "login_failed", "user": "@viewer", "date_from": "2000-01-01"},
+        "expect": {"status": 200, "total_count": 1,
+                   "all_match": {"action": "login_failed", "user_email": "viewer@example.com"}}}
+     ]},
+
+    {"name": "US47_invalid_date_rejected", "url": "auditlog-list", "method": "get", "auth": "admin",
+     "params": {"date_from": "pas-une-date"}, "expect": {"status": 400}},
+
+    {"name": "US47_invalid_action_rejected", "url": "auditlog-list", "method": "get", "auth": "admin",
+     "params": {"action": "inexistante"}, "expect": {"status": 400}}
+  ]
+}
