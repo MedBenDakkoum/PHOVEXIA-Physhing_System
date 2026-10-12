@@ -29,11 +29,11 @@ class User(AbstractUser):
     class Role(models.TextChoices):
         ADMIN = "admin", "Administrateur"
         ANALYST = "analyst", "Analyste"
-        VIEWER = "viewer", "Lecteur"
+        END_USER = "end_user", "Utilisateur"
 
     username = None
     email = models.EmailField(unique=True)
-    role = models.CharField(max_length=10, choices=Role.choices, default=Role.VIEWER)
+    role = models.CharField(max_length=10, choices=Role.choices, default=Role.END_USER)
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []

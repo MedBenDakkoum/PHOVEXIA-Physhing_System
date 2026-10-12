@@ -3,9 +3,10 @@ from django.db import transaction
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters, generics, mixins, status, viewsets
 from rest_framework.exceptions import AuthenticationFailed
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.exceptions import ValidationError
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
@@ -13,7 +14,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from audit.models import AuditLog
 from audit.services import record
 
-from .permissions import IsAdminRole
+from .permissions import IsEndUser, IsAdmin
 from .serializers import (AdminUserSerializer, ChangePasswordSerializer,
                           LogoutSerializer, RegisterSerializer, UserSerializer)
 
@@ -37,12 +38,10 @@ class LoginView(TokenObtainPairView):
         try:
             serializer.is_valid(raise_exception=True)
         except AuthenticationFailed:
-            # Identifiants refusés (mauvais mot de passe, email inconnu, compte suspendu)
-            getter = getattr(request.data, "get", None)
-            email = str(getter(User.USERNAME_FIELD, "") if getter else "").strip().lower()[:254]
-            known = User.objects.filter(email__iexact=email).first() if email else None
-            record(AuditLog.Action.LOGIN_FAILED, request=request, user=known, email=email)
-            raise
+            # Identifiants refusés : message identique pour mauvais mot de passe
+            # ou email inconnu, conformément au cahier des charges.
+            record(AuditLog.Action.LOGIN_FAILED, request=request, user=None, email="")
+            raise AuthenticationFailed("Identifiants incorrects.")
         except TokenError as e:
             raise InvalidToken(e.args[0])
 
@@ -52,14 +51,14 @@ class LoginView(TokenObtainPairView):
 
 class MeView(generics.RetrieveUpdateAPIView):
     serializer_class = UserSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsEndUser]
 
     def get_object(self):
         return self.request.user
 
 
 class ChangePasswordView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsEndUser]
 
     def post(self, request):
         s = ChangePasswordSerializer(data=request.data, context={"request": request})
@@ -70,7 +69,7 @@ class ChangePasswordView(APIView):
 
 
 class LogoutView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsEndUser]
 
     def post(self, request):
         s = LogoutSerializer(data=request.data)
@@ -89,7 +88,7 @@ class UserAdminViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
     """Gestion des utilisateurs (admin uniquement). DELETE = suspension du compte."""
     queryset = User.objects.all().order_by("-date_joined")
     serializer_class = AdminUserSerializer
-    permission_classes = [IsAdminRole]
+    permission_classes = [IsAdmin]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_fields = ["role", "is_active"]
     search_fields = ["email", "first_name", "last_name"]
@@ -100,6 +99,14 @@ class UserAdminViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
         old_role = serializer.instance.role
         old_active = serializer.instance.is_active
         user = serializer.save()
+
+        # BR-06 : Admin ne peut pas retirer son propre rôle admin
+        if user == self.request.user and old_role == "admin" and user.role != "admin":
+            raise ValidationError("Un administrateur ne peut pas retirer son propre rôle d'administrateur.")
+
+        # BR-06 : Admin ne peut pas se désactiver lui-même
+        if user == self.request.user and old_active and not user.is_active:
+            raise ValidationError("Un administrateur ne peut pas désactiver son propre compte.")
 
         if user.role != old_role:
             record(AuditLog.Action.ROLE_CHANGE, request=self.request, target=user,
