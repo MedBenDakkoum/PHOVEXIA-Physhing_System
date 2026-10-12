@@ -30,7 +30,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data):
-        # Le rôle n'est jamais accepté depuis l'inscription publique : toujours "viewer"
+        # Le rôle n'est jamais accepté depuis l'inscription publique : toujours "end_user"
         return User.objects.create_user(**validated_data)
 
 

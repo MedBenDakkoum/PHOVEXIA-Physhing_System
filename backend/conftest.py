@@ -26,14 +26,14 @@ def api_client():
 
 @pytest.fixture
 def make_user(db):
-    def _make(email="user@example.com", password=PASSWORD, role="viewer", **extra):
+    def _make(email="user@example.com", password=PASSWORD, role="end_user", **extra):
         return User.objects.create_user(email=email, password=password, role=role, **extra)
     return _make
 
 
 @pytest.fixture
 def viewer(make_user):
-    return make_user(email="viewer@example.com", role="viewer")
+    return make_user(email="viewer@example.com", role="end_user")
 
 
 @pytest.fixture

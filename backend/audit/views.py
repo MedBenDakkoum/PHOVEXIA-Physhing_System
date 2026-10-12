@@ -2,7 +2,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import viewsets
 from rest_framework.pagination import PageNumberPagination
 
-from accounts.permissions import IsAdminRole
+from accounts.permissions import IsAdmin
 
 from .filters import AuditLogFilter
 from .models import AuditLog
@@ -19,7 +19,7 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
     """Journal d'audit : lecture seule, paginé, filtrable, réservé à l'administrateur."""
     queryset = AuditLog.objects.select_related("user")
     serializer_class = AuditLogSerializer
-    permission_classes = [IsAdminRole]
+    permission_classes = [IsAdmin]
     pagination_class = AuditPagination
     filter_backends = [DjangoFilterBackend]
     filterset_class = AuditLogFilter
