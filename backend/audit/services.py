@@ -59,3 +59,22 @@ def record(action, *, request=None, user=None, email=None, target=None, metadata
         entry.target_repr = str(target)[:255]
     entry.save()
     return entry
+
+
+def log_status_change(scan, transition_label, actor, old_status, new_status) -> None:
+    """
+    Write an immutable audit entry for a scan status change (BR-04 / US46).
+
+    old_status must be the status BEFORE the change: the caller mutates
+    scan.status before saving, so we never read it from the instance here.
+    """
+    record(
+        action=AuditLog.Action.SCAN_STATUS_CHANGED,
+        user=actor,
+        target=scan,
+        metadata={
+            "from_status": old_status,
+            "to_status": new_status,
+            "transition": transition_label,
+        },
+    )

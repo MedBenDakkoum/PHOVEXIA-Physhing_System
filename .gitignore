@@ -43,3 +43,9 @@ build/
 .idea/
 .DS_Store
 Thumbs.db
+*.md
+*.sqlite3*
+*.sql.backup*
+
+# Documentation (ne pas versionner)
+docs/
