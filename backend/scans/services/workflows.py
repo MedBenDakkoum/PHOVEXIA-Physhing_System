@@ -1,0 +1,84 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from django.contrib.auth import get_user_model
+from django.utils import timezone
+
+from audit.services import log_status_change
+
+from ..models import Scan
+
+User = get_user_model()
+
+
+@dataclass(frozen=True)
+class Transition:
+    """Immutable transition rule: from_status -> (allowed_to_statuses, audit_action_label)."""
+    from_status: str
+    allowed_to: tuple[str, ...]
+    audit_label: str
+
+
+# Fixed transition graph per BR-04: Submitted→Analyzing; Analyzing→Detected|Failed;
+# Detected→Under Review; Under Review→Confirmed|False Positive; Confirmed→Blocked; Failed→Submitted
+TRANSITIONS: tuple[Transition, ...] = (
+    Transition(from_status=Scan.Status.SUBMITTED, allowed_to=(Scan.Status.ANALYZING,), audit_label="scan_started"),
+    Transition(from_status=Scan.Status.ANALYZING, allowed_to=(Scan.Status.DETECTED, Scan.Status.FAILED), audit_label="analysis_complete"),
+    Transition(from_status=Scan.Status.DETECTED, allowed_to=(Scan.Status.UNDER_REVIEW,), audit_label="detected_under_review"),
+    Transition(from_status=Scan.Status.UNDER_REVIEW, allowed_to=(Scan.Status.CONFIRMED, Scan.Status.FALSE_POSITIVE), audit_label="review_decided"),
+    Transition(from_status=Scan.Status.CONFIRMED, allowed_to=(Scan.Status.BLOCKED,), audit_label="confirmed_blocked"),
+    Transition(from_status=Scan.Status.FAILED, allowed_to=(Scan.Status.SUBMITTED,), audit_label="rescan_queued"),
+)
+
+
+def _find_transition(scan: Scan, new_status: str) -> Transition | None:
+    """Find the transition rule that applies to the current scan status."""
+    for t in TRANSITIONS:
+        if t.from_status == scan.status and new_status in t.allowed_to:
+            return t
+    return None
+
+
+class InvalidTransition(Exception):
+    """Raised when an attempt is made to transition a scan to an invalid status."""
+
+
+def change_status(scan: Scan, new_status: str, actor: User) -> Scan:
+    """
+    Change the scan status following BR-04 transition rules.
+
+    Raises InvalidTransition if the transition is not allowed.
+    Writes an audit entry on successful transition.
+    """
+    transition = _find_transition(scan, new_status)
+    if transition is None:
+        allowed = ", ".join(
+            target
+            for t in TRANSITIONS
+            if t.from_status == scan.status
+            for target in t.allowed_to
+        )
+        raise InvalidTransition(
+            f"Invalid status transition: {scan.status} → {new_status}. "
+            f"Allowed: {allowed}"
+        )
+
+    # Update the scan status and timestamp (keep old status for the audit entry)
+    old_status = scan.status
+    scan.status = new_status
+    if new_status in (
+        Scan.Status.DETECTED,
+        Scan.Status.FAILED,
+        Scan.Status.CONFIRMED,
+        Scan.Status.FALSE_POSITIVE,
+        Scan.Status.BLOCKED,
+    ):
+        scan.finished_at = timezone.now()
+    scan.updated_at = timezone.now()
+    scan.save(update_fields=["status", "updated_at", "finished_at"])
+
+    # Write audit entry
+    log_status_change(scan, transition.audit_label, actor, old_status, new_status)
+
+    return scan

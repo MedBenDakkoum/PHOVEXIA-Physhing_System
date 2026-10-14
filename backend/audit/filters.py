@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 import django_filters as df
 
 from .models import AuditLog
@@ -12,4 +14,4 @@ class AuditLogFilter(df.FilterSet):
 
     class Meta:
         model = AuditLog
-        fields = []
+        fields: ClassVar[list[str]] = []

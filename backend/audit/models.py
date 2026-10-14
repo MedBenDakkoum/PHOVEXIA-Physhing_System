@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 from django.conf import settings
 from django.db import models
 
@@ -28,6 +30,7 @@ class AuditLog(models.Model):
         BLOCKLIST_ADD = "blocklist_add", "Ajout à la blocklist"
         BLOCKLIST_REMOVE = "blocklist_remove", "Retrait de la blocklist"
         MODEL_UPDATE = "model_update", "Modèle"
+        SCAN_STATUS_CHANGED = "scan_status_changed", "Changement de statut d'un scan"
 
     # Qui : FK (filtrage) + copie de l'email (conservée même si le compte disparaît,
     # et utilisable pour une tentative de connexion sur un email inconnu).
@@ -49,8 +52,8 @@ class AuditLog(models.Model):
     objects = AuditLogQuerySet.as_manager()
 
     class Meta:
-        ordering = ["-created_at", "-id"]
-        indexes = [
+        ordering: ClassVar[list[str]] = ["-created_at", "-id"]
+        indexes: ClassVar[list[models.Index]] = [
             models.Index(fields=["user", "created_at"]),
             models.Index(fields=["action", "created_at"]),
         ]
