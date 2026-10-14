@@ -1,0 +1,2 @@
+# Ruff config — migrations are Django-generated, excluded from linting.
+extend-exclude = ["*/migrations/*"]
