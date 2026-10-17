@@ -1,3 +1,4 @@
+import logging
 import os
 from pathlib import Path
 
@@ -6,9 +7,36 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
+logger = logging.getLogger(__name__)
+
 SECRET_KEY = os.environ["SECRET_KEY"]
 DEBUG = os.getenv("DEBUG", "False") == "True"
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "").split(",")
+
+
+def _positive_int_env(name: str, default: int) -> int:
+    """Read an int env var; fall back to `default` with a warning if invalid.
+
+    Invalid means: not an integer, or < 1 (BR-01: a quota of 0 or negative
+    would lock every user out of scanning). An unset/empty var keeps the
+    default silently (no warning).
+    """
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        logger.warning(
+            "Invalid %s=%r: not an integer; falling back to %d.", name, raw, default
+        )
+        return default
+    if value < 1:
+        logger.warning(
+            "Invalid %s=%r: must be >= 1; falling back to %d.", name, raw, default
+        )
+        return default
+    return value
 
 
 
@@ -117,6 +145,10 @@ TIME_ZONE = 'UTC'
 USE_I18N = True
 
 USE_TZ = True
+
+# BR-01 / US-14: max scans per user per calendar day (in TIME_ZONE above).
+# Same limit for every role (end_user, analyst, admin) - deliberate decision.
+SCAN_DAILY_QUOTA = _positive_int_env("SCAN_DAILY_QUOTA", 20)
 
 
 # Static files (CSS, JavaScript, Images)
