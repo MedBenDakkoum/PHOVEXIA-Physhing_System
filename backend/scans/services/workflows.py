@@ -44,10 +44,13 @@ class InvalidTransition(Exception):
     """Raised when an attempt is made to transition a scan to an invalid status."""
 
 
-def change_status(scan: Scan, new_status: str, actor: User) -> Scan:
+def change_status(scan: Scan, new_status: str, actor: User | None) -> Scan:
     """
     Change the scan status following BR-04 transition rules.
 
+    actor is the user who triggered the change, or None for the SYSTEM
+    (Celery worker runs a scan with no human connected - AuditLog.user is
+    nullable by design).
     Raises InvalidTransition if the transition is not allowed.
     Writes an audit entry on successful transition.
     """

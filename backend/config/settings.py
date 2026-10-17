@@ -41,6 +41,25 @@ def _positive_int_env(name: str, default: int) -> int:
 
 
 
+def _float_env(name: str, default: float) -> float:
+    """Read a float env var; fall back to `default` with a warning if invalid.
+
+    Cross-field and range validation (lower < upper, both in [0, 1]) is done
+    by scans.services.inference._thresholds() which raises ImproperlyConfigured.
+    """
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = float(raw.strip())
+    except ValueError:
+        logger.warning(
+            "Invalid %s=%r: not a float; falling back to %s.", name, raw, default
+        )
+        return default
+    return value
+
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -150,6 +169,12 @@ USE_TZ = True
 # Same limit for every role (end_user, analyst, admin) - deliberate decision.
 SCAN_DAILY_QUOTA = _positive_int_env("SCAN_DAILY_QUOTA", 20)
 
+# Detection thresholds (verdict = phishing if score >= upper, legitimate if
+# score <= lower, uncertain in between -> analyst queue). Validated by
+# scans.services.inference.__thresholds(): floats in [0, 1] and lower < upper.
+DETECTION_PHISHING_THRESHOLD = _float_env("DETECTION_PHISHING_THRESHOLD", 0.70)
+DETECTION_UNCERTAIN_LOWER = _float_env("DETECTION_UNCERTAIN_LOWER", 0.40)
+
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
@@ -195,3 +220,16 @@ SPECTACULAR_SETTINGS = {
     "TITLE": "Phishing Multimodal API",
     "VERSION": "0.1.0",
 }
+
+# Celery (Step 6) - broker = Redis (REDIS_URL in .env)
+# JSON only: accept_content refuses pickle, so a crafted/old message can never
+# execute code in the worker. Time limits: soft 60 s (task may clean up),
+# hard 90 s (worker is killed).
+CELERY_BROKER_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SOFT_TIME_LIMIT = 60
+CELERY_TASK_TIME_LIMIT = 90
+CELERY_TASK_ALWAYS_EAGER = False
+CELERY_TASK_EAGER_PROPAGATES_EXCEPTIONS = False

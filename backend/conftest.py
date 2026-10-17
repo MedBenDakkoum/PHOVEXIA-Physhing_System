@@ -19,6 +19,25 @@ def _clear_throttle_cache():
     cache.clear()
 
 
+@pytest.fixture(autouse=True)
+def _celery_eager(settings):
+    """Step 6: run Celery tasks synchronously in tests (CELERY_TASK_ALWAYS_EAGER).
+
+    Both Django settings and celery app.conf are set: celery caches its
+    configuration on first access, so the app.conf assignment is the one
+    the worker code actually reads.
+    """
+    settings.CELERY_TASK_ALWAYS_EAGER = True
+    settings.CELERY_TASK_EAGER_PROPAGATES_EXCEPTIONS = True
+    from config.celery import app as celery_app
+
+    celery_app.conf.task_always_eager = True
+    celery_app.conf.task_eager_propagates = True
+    yield
+    celery_app.conf.task_always_eager = False
+    celery_app.conf.task_eager_propagates = False
+
+
 @pytest.fixture
 def api_client():
     return APIClient()

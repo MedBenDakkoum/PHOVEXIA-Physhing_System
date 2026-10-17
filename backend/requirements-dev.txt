@@ -3,7 +3,7 @@ pytest
 pytest-django
 pytest-cov
 factory-boy
-ruff
+ruff==0.16.10
 bandit
 pip-audit
 locust
