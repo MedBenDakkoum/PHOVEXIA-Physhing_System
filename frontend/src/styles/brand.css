@@ -1,0 +1,98 @@
+/* ============================ L'emblème : le bouclier et son faisceau ============================ */
+.emblem {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.em-ring-a {
+  transform-origin: 300px 300px;
+  animation: spin 160s linear infinite;
+}
+.em-ring-b {
+  transform-origin: 300px 300px;
+  animation: spin 110s linear infinite reverse;
+}
+.em-orbit {
+  transform-origin: 300px 300px;
+  animation: spin 80s linear infinite;
+}
+.em-counter {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: spin 80s linear infinite reverse;
+}
+.em-beam {
+  transform-origin: 300px 300px;
+  animation: spin 8s linear infinite;
+}
+.em-blip {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: blip 8s ease-out infinite;
+  animation-delay: var(--d, 0s);
+}
+.em-blip-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: blip-ring 8s ease-out infinite;
+  animation-delay: var(--d, 0s);
+}
+.em-core {
+  animation: breathe 5s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@keyframes blip {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  2% {
+    opacity: 1;
+    transform: scale(1.4);
+  }
+  8% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  40% {
+    opacity: 0.15;
+  }
+  55%,
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes blip-ring {
+  0% {
+    opacity: 0.9;
+    transform: scale(0.4);
+  }
+  22% {
+    opacity: 0;
+    transform: scale(2.6);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2.6);
+  }
+}
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .em-blip {
+    opacity: 0.8;
+  }
+}
