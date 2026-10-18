@@ -9,12 +9,19 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
 from enum import StrEnum
 from urllib.parse import urlsplit
 
 MAX_URL_LENGTH = 2048
 ALLOWED_SCHEMES = frozenset({"http", "https"})
+
+# Time budget for ONE hostname resolution (Step 7 / US16): the API must never
+# hang on a dead DNS server. socket.getaddrinfo() has no timeout parameter,
+# so the lookup runs in a worker thread with this budget.
+DNS_TIMEOUT_SECONDS = 3.0
 
 # 100.64.0.0/10 (CGNAT / shared address space): not flagged by
 # ipaddress.is_private on every Python version, checked explicitly.
@@ -31,6 +38,7 @@ class RejectionCode(StrEnum):
     BLOCKED_HOST = "blocked_host"
     FORBIDDEN_ADDRESS = "forbidden_address"
     DNS_FAILURE = "dns_failure"
+    DNS_TIMEOUT = "dns_timeout"
 
 
 class InvalidURL(Exception):
@@ -39,6 +47,10 @@ class InvalidURL(Exception):
     def __init__(self, code: RejectionCode):
         self.code = code
         super().__init__(str(code))
+
+
+class DNSTimeoutError(Exception):
+    """Raised when the DNS lookup exceeds DNS_TIMEOUT_SECONDS."""
 
 
 @dataclass(frozen=True)
@@ -83,8 +95,27 @@ def _parse_ip(text: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None
 
 
 def _resolve_host(host: str) -> list[str]:
-    """Resolve host to every address (A + AAAA). Mocked in tests."""
-    infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
+    """Resolve host to every address (A + AAAA), bounded by DNS_TIMEOUT_SECONDS.
+
+    Mocked in tests (socket.getaddrinfo is replaced). getaddrinfo() cannot be
+    interrupted, so it runs in a single worker thread and the result is awaited
+    with a time budget: on expiry DNSTimeoutError is raised and the pool is
+    shut down without waiting, the worker finishing in the background.
+    The worker is never given a hostname that would be fetched: its result is
+    only read here.
+    """
+    budget = DNS_TIMEOUT_SECONDS
+    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="url-dns")
+    try:
+        future = pool.submit(socket.getaddrinfo, host, None, proto=socket.IPPROTO_TCP)
+        try:
+            infos = future.result(timeout=budget)
+        except FuturesTimeoutError as exc:
+            raise DNSTimeoutError(
+                f"DNS resolution of {host} exceeded {budget} seconds"
+            ) from exc
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
     addresses: list[str] = []
     for info in infos:
         addr = info[4][0]
@@ -102,7 +133,8 @@ def validate_url(url: str | None) -> ValidatedURL:
     empty host, "localhost" (any case, with or without trailing dot, and
     *.localhost), IP literals that are loopback/private/link-local/reserved/
     multicast/unspecified/CGNAT (IPv4 and IPv6, incl. IPv4-mapped IPv6),
-    hostnames where ANY resolved address is forbidden, and DNS failures.
+    hostnames where ANY resolved address is forbidden, DNS failures and DNS
+    resolutions slower than DNS_TIMEOUT_SECONDS (code dns_timeout).
     """
     if url is None or not url.strip():
         raise InvalidURL(RejectionCode.EMPTY)
@@ -145,6 +177,8 @@ def validate_url(url: str | None) -> ValidatedURL:
 
     try:
         addresses = _resolve_host(host)
+    except DNSTimeoutError as exc:
+        raise InvalidURL(RejectionCode.DNS_TIMEOUT) from exc
     except OSError as exc:
         raise InvalidURL(RejectionCode.DNS_FAILURE) from exc
     if not addresses:

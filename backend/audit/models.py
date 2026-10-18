@@ -30,6 +30,7 @@ class AuditLog(models.Model):
         BLOCKLIST_ADD = "blocklist_add", "Ajout à la blocklist"
         BLOCKLIST_REMOVE = "blocklist_remove", "Retrait de la blocklist"
         MODEL_UPDATE = "model_update", "Modèle"
+        SCAN_CREATED = "scan_created", "Création d'un scan"
         SCAN_STATUS_CHANGED = "scan_status_changed", "Changement de statut d'un scan"
 
     # Qui : FK (filtrage) + copie de l'email (conservée même si le compte disparaît,
