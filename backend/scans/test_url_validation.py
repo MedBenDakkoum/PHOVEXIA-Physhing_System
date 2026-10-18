@@ -6,6 +6,7 @@ network. IP-literal tests install a strict mock that fails on any lookup, to
 prove literals are never resolved.
 """
 import socket
+import time
 
 import pytest
 
@@ -342,6 +343,39 @@ def test_dns_returning_non_ip_answer_refused(monkeypatch):
     with pytest.raises(InvalidURL) as exc:
         validate_url("http://weird.example/")
     assert exc.value.code == RejectionCode.DNS_FAILURE
+
+
+# --- DNS resolution time budget (Step 7) ------------------------------------
+
+
+def test_dns_timeout_budget_is_three_seconds():
+    assert url_validation.DNS_TIMEOUT_SECONDS == 3.0
+
+
+def test_slow_resolver_is_refused_with_dns_timeout(monkeypatch):
+    def slow_getaddrinfo(*args, **kwargs):
+        time.sleep(0.3)
+        return [
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (PUBLIC_V4, 0))
+        ]
+
+    monkeypatch.setattr(url_validation.socket, "getaddrinfo", slow_getaddrinfo)
+    monkeypatch.setattr(url_validation, "DNS_TIMEOUT_SECONDS", 0.05)
+
+    started = time.monotonic()
+    with pytest.raises(InvalidURL) as exc:
+        validate_url("https://slow.example/")
+    elapsed = time.monotonic() - started
+
+    assert exc.value.code == RejectionCode.DNS_TIMEOUT
+    assert elapsed < 0.3, "validate_url must not wait for a dead resolver"
+
+
+def test_resolver_faster_than_the_budget_is_accepted(monkeypatch):
+    install_dns(monkeypatch, {"example.com": [PUBLIC_V4]})
+    result = validate_url("https://example.com/")
+    assert result.host == "example.com"
+    assert result.url == "https://example.com/"
 
 
 # --- is_forbidden_ip unit checks (real Python 3.14 semantics, no DNS) ------
