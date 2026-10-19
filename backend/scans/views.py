@@ -1,7 +1,7 @@
 """Step 7 - scan endpoints (US12, US13, US14, US15, US16 / BR-01, BR-07).
 
 POST /api/scans/         submit a URL and run it asynchronously (202)
-GET  /api/scans/         my scans, newest first, paginated
+GET  /api/scans/         my scans, newest first, paginated, filtered (Step 8b)
 GET  /api/scans/quota/   my quota for today (US14)
 GET  /api/scans/{uuid}/  one scan by public UUID: owner, analyst or admin
 
@@ -17,6 +17,11 @@ any query runs, so a malformed id can never raise a 500).
 Error shape: every 400 carries a machine-readable `code` (RejectionCode or
 `invalid_request`) plus a human message that never leaks resolver details,
 addresses or stack traces.
+
+Step 8b (US29): the list endpoint accepts the history filters declared in
+`filters.py` (q, verdict, status, created_after, created_before) plus a
+whitelisted `ordering`. Filters always run on top of the owner scope, and an
+invalid filter value answers 400 before any query executes.
 """
 from __future__ import annotations
 
@@ -25,8 +30,15 @@ from typing import ClassVar
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.shortcuts import get_object_or_404
-from drf_spectacular.utils import OpenApiResponse, OpenApiTypes, extend_schema
+from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    OpenApiTypes,
+    extend_schema,
+)
 from rest_framework import generics, status
+from rest_framework.filters import OrderingFilter
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
@@ -34,6 +46,7 @@ from accounts.permissions import IsEndUser
 from audit.models import AuditLog
 from audit.services import record
 
+from .filters import ScanFilter
 from .models import Scan
 from .serializers import (
     QuotaExceededSerializer,
@@ -92,6 +105,20 @@ _NOT_FOUND = OpenApiResponse(
     description="Scan introuvable ou non visible par ce compte (404 volontaire, jamais 403).",
 )
 
+# Step 8b (US29): the only accepted values of ?ordering=. A leading "-" means
+# descending. Anything else is dropped by rest_framework.filters.OrderingFilter
+# and the default ordering is used instead: it is never an error, and no
+# client-provided field name ever reaches SQL. Single source of truth for the
+# view attribute and for the OpenAPI enum below.
+ORDERING_WHITELIST = [
+    "created_at",
+    "finished_at",
+    "status",
+    "verdict",
+    "score",
+]
+ORDERING_VALUES = ORDERING_WHITELIST + [f"-{name}" for name in ORDERING_WHITELIST]
+
 
 def _url_error(exc: InvalidURL) -> dict[str, str]:
     """400 body of a refused URL: machine-readable code + safe message."""
@@ -110,17 +137,23 @@ class ScanPagination(PageNumberPagination):
 
 
 class ScanListCreateView(generics.ListCreateAPIView):
-    """POST = submit a URL (US12/13/14/15); GET = my scans, newest first."""
+    """POST = submit a URL (US12/13/14/15); GET = my scans, filtered (US29)."""
 
     queryset = Scan.objects.all()
     serializer_class = ScanSerializer
     pagination_class = ScanPagination
     permission_classes: ClassVar[list] = [IsEndUser]
+    # Step 8b: django-filter (q, verdict, status, created_after, created_before)
+    # then the ordering whitelist. Both operate on the owner-scoped queryset.
+    filter_backends: ClassVar[list] = [DjangoFilterBackend, OrderingFilter]
+    filterset_class = ScanFilter
+    ordering_fields: ClassVar[list[str]] = ORDERING_WHITELIST
+    ordering: ClassVar[list[str]] = ["-created_at", "-id"]
 
     def get_queryset(self):
-        return self.queryset.filter(owner=self.request.user).order_by(
-            "-created_at", "-id"
-        )
+        # Owner scope only (US29/ISO-6.6): filtering and ordering are the job
+        # of the filter backends above, so no client input can widen the query.
+        return self.queryset.filter(owner=self.request.user)
 
     @extend_schema(
         tags=["scans"],
@@ -144,8 +177,30 @@ class ScanListCreateView(generics.ListCreateAPIView):
     @extend_schema(
         tags=["scans"],
         responses={200: ScanSerializer},
-        summary="Lister mes scans (US16)",
-        description="Uniquement mes scans, du plus récent au plus ancien, paginé.",
+        summary="Lister mes scans (US16 / US29)",
+        parameters=[
+            OpenApiParameter(
+                name="ordering",
+                type=OpenApiTypes.STR,
+                required=False,
+                enum=ORDERING_VALUES,
+                description=(
+                    "Tri de l'historique : l'un des champs autorisés (created_at, "
+                    "finished_at, status, verdict, score), précédé d'un « - » pour "
+                    "l'ordre décroissant. Une valeur hors liste retombe sur le tri "
+                    "par défaut (-created_at, -id)."
+                ),
+            ),
+        ],
+        description=(
+            "Uniquement mes scans, du plus récent au plus ancien, paginé. "
+            "Filtres (US29) : `q` (sous-chaîne de l'URL ou du domaine), "
+            "`verdict`, `status`, `created_after` et `created_before` (ISO 8601, "
+            "bornes inclusives), combinés par ET. Tri : `ordering` limité à "
+            "created_at, finished_at, status, verdict, score (un « - » pour le "
+            "décroissant) ; toute autre valeur retombe sur le tri par défaut. "
+            "Une valeur de filtre invalide renvoie 400 avant toute requête SQL."
+        ),
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
