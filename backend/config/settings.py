@@ -13,6 +13,19 @@ SECRET_KEY = os.environ["SECRET_KEY"]
 DEBUG = os.getenv("DEBUG", "False") == "True"
 ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "").split(",")
 
+# CORS (Step 8c) - browser origins allowed to call the API cross-origin.
+# Comma-separated in .env; the DEFAULT is empty = no cross-origin request is
+# allowed (same-origin only), which is the safe default.
+# CORS_ALLOW_CREDENTIALS stays False on purpose: the API authenticates with a
+# JWT in the Authorization header, never with cookies, so browsers do not need
+# (and must not send) credentials cross-origin.
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
+]
+CORS_ALLOW_CREDENTIALS = False
+
 
 def _positive_int_env(name: str, default: int) -> int:
     """Read an int env var; fall back to `default` with a warning if invalid.
@@ -69,6 +82,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'corsheaders',
     'rest_framework',
     'django_filters',
     'drf_spectacular',
@@ -81,6 +95,10 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # Step 8c: CorsMiddleware as high as possible, and in all cases BEFORE
+    # CommonMiddleware (django-cors-headers requirement): preflight OPTIONS
+    # must be answered before any middleware that can generate responses.
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
