@@ -95,7 +95,7 @@ def test_valid_transition_writes_audit_entry(make_user, from_status, to_status):
     change_status(scan, to_status, actor)
 
     assert AuditLog.objects.count() == before + 1
-    entry = AuditLog.objects.get(target_type="scan", target_id=str(scan.pk))
+    entry = AuditLog.objects.get(target_type="scan", target_id=str(scan.public_id))
     assert entry.action == AuditLog.Action.SCAN_STATUS_CHANGED
     assert entry.user_id == actor.pk
     assert entry.metadata["from_status"] == from_status

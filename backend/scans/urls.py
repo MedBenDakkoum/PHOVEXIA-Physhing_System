@@ -4,7 +4,9 @@ from .views import ScanDetailView, ScanListCreateView, ScanQuotaView
 
 urlpatterns = [
     path("scans/", ScanListCreateView.as_view(), name="scan-list"),
-    # Before <int:pk>/ so the literal "quota" can never be read as a scan id.
+    # Before <uuid:public_id>/ so the literal "quota" can never be read as a
+    # scan UUID (the uuid converter would refuse it anyway).
     path("scans/quota/", ScanQuotaView.as_view(), name="scan-quota"),
-    path("scans/<int:pk>/", ScanDetailView.as_view(), name="scan-detail"),
+    # Step 8a: the public UUID only; the sequential integer pk stays internal.
+    path("scans/<uuid:public_id>/", ScanDetailView.as_view(), name="scan-detail"),
 ]

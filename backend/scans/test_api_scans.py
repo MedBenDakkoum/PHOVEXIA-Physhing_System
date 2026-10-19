@@ -11,6 +11,7 @@ import json
 import socket
 import time
 from unittest import mock
+from uuid import uuid4
 
 import pytest
 from django.conf import settings
@@ -94,7 +95,7 @@ def test_anonymous_quota_is_401(api_client):
 @pytest.mark.django_db
 def test_anonymous_detail_is_401(api_client, viewer):
     scan = make_scan(viewer)
-    resp = api_client.get(reverse(SCAN_DETAIL, args=[scan.pk]))
+    resp = api_client.get(reverse(SCAN_DETAIL, args=[scan.public_id]))
     assert resp.status_code == http_status.HTTP_401_UNAUTHORIZED
 
 
@@ -125,13 +126,16 @@ def test_post_returns_202_with_scan_and_quota(auth_client, viewer):
     assert resp.data["quota"]["used"] == 1
     assert resp.data["quota"]["remaining"] == settings.SCAN_DAILY_QUOTA - 1
 
-    scan = Scan.objects.get(pk=resp.data["id"])
+    scan = Scan.objects.get(public_id=resp.data["id"])
     assert scan.owner == viewer
     assert scan.domain == DOMAIN
     assert scan.mode == Scan.Mode.FULL
     assert scan.status == Scan.Status.SUBMITTED
     assert scan.verdict is None
     assert scan.score is None
+    # Step 8a: the exposed id is the public UUID, never the integer pk.
+    assert str(scan.public_id) == resp.data["id"]
+    assert scan.pk != resp.data["id"]
 
 
 @pytest.mark.django_db
@@ -153,7 +157,7 @@ def test_client_cannot_set_protected_fields(auth_client, viewer):
     )
 
     assert resp.status_code == http_status.HTTP_202_ACCEPTED
-    scan = Scan.objects.get(pk=resp.data["id"])
+    scan = Scan.objects.get(public_id=resp.data["id"])
     assert scan.mode == Scan.Mode.FULL
     assert scan.status == Scan.Status.SUBMITTED
     assert scan.verdict is None
@@ -414,9 +418,10 @@ def test_list_returns_only_my_scans_newest_first(make_user, api_client):
     assert resp.status_code == http_status.HTTP_200_OK
     assert resp.data["count"] == 2
     ids = [item["id"] for item in resp.data["results"]]
-    assert set(ids) == {s.pk for s in mine}
-    assert foreign.pk not in ids
-    assert ids == sorted(ids, reverse=True)  # newest first
+    assert set(ids) == {str(s.public_id) for s in mine}
+    assert str(foreign.public_id) not in ids
+    # newest first (UUIDs themselves are not ordered: creation order is)
+    assert ids == [str(s.public_id) for s in reversed(mine)]
 
 
 @pytest.mark.django_db
@@ -430,7 +435,7 @@ def test_list_shows_only_my_scans_even_for_an_analyst(make_user, api_client):
     resp = api_client.get(reverse(SCAN_LIST))
 
     assert resp.data["count"] == 1
-    assert resp.data["results"][0]["id"] == mine.pk
+    assert resp.data["results"][0]["id"] == str(mine.public_id)
 
 
 @pytest.mark.django_db
@@ -472,13 +477,13 @@ def test_list_is_paginated(auth_client, viewer):
     assert len(small.data["results"]) == 7
 
 
-# --- GET /api/scans/{id}/ ----------------------------------------------------
+# --- GET /api/scans/{uuid}/ --------------------------------------------------
 
 
 @pytest.mark.django_db
 def test_detail_owner_can_read_his_scan(auth_client, viewer):
     scan = make_scan(viewer)
-    resp = auth_client.get(reverse(SCAN_DETAIL, args=[scan.pk]))
+    resp = auth_client.get(reverse(SCAN_DETAIL, args=[scan.public_id]))
     assert resp.status_code == http_status.HTTP_200_OK
     assert set(resp.data) == {
         "id",
@@ -491,7 +496,7 @@ def test_detail_owner_can_read_his_scan(auth_client, viewer):
         "created_at",
         "finished_at",
     }
-    assert resp.data["id"] == scan.pk
+    assert resp.data["id"] == str(scan.public_id)
     assert resp.data["url"] == VALID_URL
 
 
@@ -502,7 +507,7 @@ def test_detail_of_another_end_user_is_404_not_403(make_user, api_client):
     scan = make_scan(owner)
 
     api_client.force_authenticate(stranger)
-    resp = api_client.get(reverse(SCAN_DETAIL, args=[scan.pk]))
+    resp = api_client.get(reverse(SCAN_DETAIL, args=[scan.public_id]))
 
     assert resp.status_code == http_status.HTTP_404_NOT_FOUND
     assert resp.status_code != http_status.HTTP_403_FORBIDDEN
@@ -516,14 +521,14 @@ def test_detail_is_readable_by_analysts_and_admins(make_user, api_client, role):
     scan = make_scan(owner)
 
     api_client.force_authenticate(privileged)
-    resp = api_client.get(reverse(SCAN_DETAIL, args=[scan.pk]))
+    resp = api_client.get(reverse(SCAN_DETAIL, args=[scan.public_id]))
     assert resp.status_code == http_status.HTTP_200_OK
-    assert resp.data["id"] == scan.pk
+    assert resp.data["id"] == str(scan.public_id)
 
 
 @pytest.mark.django_db
 def test_detail_unknown_id_is_404_for_the_owner(auth_client, viewer):
-    resp = auth_client.get(reverse(SCAN_DETAIL, args=[999_999]))
+    resp = auth_client.get(reverse(SCAN_DETAIL, args=[str(uuid4())]))
     assert resp.status_code == http_status.HTTP_404_NOT_FOUND
 
 
@@ -533,7 +538,7 @@ def test_detail_of_an_existing_but_invisible_scan_is_404(make_user, api_client):
     stranger = make_user(email="stranger@example.com")
     scan = make_scan(owner)
     api_client.force_authenticate(stranger)
-    resp = api_client.get(reverse(SCAN_DETAIL, args=[scan.pk]))
+    resp = api_client.get(reverse(SCAN_DETAIL, args=[scan.public_id]))
     assert resp.status_code == http_status.HTTP_404_NOT_FOUND
 
 
