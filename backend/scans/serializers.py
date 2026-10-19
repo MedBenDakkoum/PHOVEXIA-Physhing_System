@@ -23,7 +23,13 @@ class ScanCreateSerializer(serializers.Serializer):
 
 
 class ScanSerializer(serializers.ModelSerializer):
-    """Read-only projection of a scan (list and detail)."""
+    """Read-only projection of a scan (list and detail).
+
+    Step 8a: `id` is the public UUID (`public_id`), never the sequential
+    integer primary key, which stays internal (ISO-6.6 anti-enumeration).
+    """
+
+    id = serializers.UUIDField(source="public_id", read_only=True)
 
     class Meta:
         model = Scan
@@ -51,9 +57,12 @@ class QuotaSerializer(serializers.Serializer):
 
 
 class ScanCreatedSerializer(serializers.Serializer):
-    """202 body of POST /api/scans/: the created scan + the quota after it."""
+    """202 body of POST /api/scans/: the created scan + the quota after it.
 
-    id = serializers.IntegerField()
+    Step 8a: `id` is the public UUID, matching the detail URL /api/scans/<uuid>/.
+    """
+
+    id = serializers.UUIDField()
     url = serializers.CharField(max_length=2048)
     status = serializers.CharField(max_length=20)
     created_at = serializers.DateTimeField()

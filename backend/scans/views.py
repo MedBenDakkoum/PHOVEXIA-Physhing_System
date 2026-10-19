@@ -3,11 +3,16 @@
 POST /api/scans/         submit a URL and run it asynchronously (202)
 GET  /api/scans/         my scans, newest first, paginated
 GET  /api/scans/quota/   my quota for today (US14)
-GET  /api/scans/{id}/    one scan: owner, analyst or admin
+GET  /api/scans/{uuid}/  one scan by public UUID: owner, analyst or admin
 
 Isolation: an end user only ever sees his own scans, and a scan id belonging
 to somebody else answers 404 (never 403) so ids cannot be probed. Anonymous
 requests are refused with 401 by the explicit permission class.
+
+Step 8a (ISO-6.6): the API exposes only the public UUID (`public_id`); the
+sequential integer pk never leaves the server. An unknown or malformed UUID
+answers 404 (the <uuid:...> converter refuses non-UUID path segments before
+any query runs, so a malformed id can never raise a 500).
 
 Error shape: every 400 carries a machine-readable `code` (RejectionCode or
 `invalid_request`) plus a human message that never leaks resolver details,
@@ -188,7 +193,7 @@ class ScanListCreateView(generics.ListCreateAPIView):
             return quota_exceeded_response(exc)
 
         payload = {
-            "id": scan.pk,
+            "id": scan.public_id,
             "url": scan.url,
             "status": scan.status,
             "created_at": scan.created_at,
@@ -206,7 +211,12 @@ class ScanListCreateView(generics.ListCreateAPIView):
 
 
 class ScanDetailView(generics.RetrieveAPIView):
-    """GET /api/scans/{id}/: owner, analyst or admin; 404 for anybody else."""
+    """GET /api/scans/{uuid}/: owner, analyst or admin; 404 for anybody else.
+
+    Step 8a: the lookup uses the public UUID. A malformed path segment never
+    reaches the database: the <uuid:public_id> URL converter refuses it and
+    Django answers 404 (never 500).
+    """
 
     queryset = Scan.objects.all()
     serializer_class = ScanSerializer
@@ -216,6 +226,10 @@ class ScanDetailView(generics.RetrieveAPIView):
         tags=["scans"],
         responses={200: ScanSerializer, 404: _NOT_FOUND},
         summary="Détail d'un scan (US16)",
+        description=(
+            "Identifié par l'UUID public (`id` de la réponse), jamais par la clé "
+            "entière interne."
+        ),
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
@@ -224,7 +238,7 @@ class ScanDetailView(generics.RetrieveAPIView):
         queryset = self.queryset
         if self.request.user.role == User.Role.END_USER:
             queryset = queryset.filter(owner=self.request.user)
-        return get_object_or_404(queryset, pk=self.kwargs["pk"])
+        return get_object_or_404(queryset, public_id=self.kwargs["public_id"])
 
 
 class ScanQuotaView(generics.GenericAPIView):

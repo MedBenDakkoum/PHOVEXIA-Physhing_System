@@ -1,3 +1,4 @@
+import uuid
 from typing import ClassVar
 
 from django.conf import settings
@@ -28,6 +29,11 @@ class Scan(models.Model):
     
     # Fields
     id = models.BigAutoField(primary_key=True)
+    # Public identifier exposed by the API: a UUID is not enumerable, unlike
+    # the sequential integer primary key which stays internal (US30 / ISO-6.6).
+    public_id = models.UUIDField(
+        "Public ID", default=uuid.uuid4, unique=True, editable=False
+    )
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -62,4 +68,4 @@ class Scan(models.Model):
         ]
     
     def __str__(self):
-        return f"Scan {self.id} - {self.domain or self.url}"
+        return f"Scan {self.public_id} - {self.domain or self.url}"

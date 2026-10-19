@@ -48,7 +48,7 @@ def make_scan(url, status=Scan.Status.SUBMITTED, mode=Scan.Mode.FAST):
 
 def audit_rows(scan):
     return list(
-        AuditLog.objects.filter(target_id=str(scan.pk)).order_by("pk")
+        AuditLog.objects.filter(target_id=str(scan.public_id)).order_by("pk")
     )
 
 

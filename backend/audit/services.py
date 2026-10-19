@@ -55,7 +55,10 @@ def record(action, *, request=None, user=None, email=None, target=None, metadata
     )
     if target is not None:
         entry.target_type = target._meta.model_name
-        entry.target_id = str(target.pk)
+        # Step 8a: prefer the public UUID when the model exposes one (Scan),
+        # so the sequential integer pk never reaches the audit log.
+        public_id = getattr(target, "public_id", None)
+        entry.target_id = str(public_id if public_id is not None else target.pk)
         entry.target_repr = str(target)[:255]
     entry.save()
     return entry
