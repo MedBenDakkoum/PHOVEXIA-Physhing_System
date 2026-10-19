@@ -65,6 +65,15 @@ class Scan(models.Model):
             models.Index(fields=["-created_at"]),
             models.Index(fields=["status"]),
             models.Index(fields=["-created_at", "-id"]),
+            # Step 8b (US29): history = owner scope + newest first, and the
+            # verdict filter. The date range reuses the -created_at index.
+            # The `q` filter uses icontains on url/domain, which no btree
+            # index can serve (documented in docs/HANDOFF.md).
+            models.Index(
+                fields=["owner", "-created_at"],
+                name="scans_scan_owner_created_idx",
+            ),
+            models.Index(fields=["verdict"], name="scans_scan_verdict_idx"),
         ]
     
     def __str__(self):
