@@ -32,6 +32,16 @@ class AuditLog(models.Model):
         MODEL_UPDATE = "model_update", "Modèle"
         SCAN_CREATED = "scan_created", "Création d'un scan"
         SCAN_STATUS_CHANGED = "scan_status_changed", "Changement de statut d'un scan"
+        # Step 9 (US11): anonymous quick check. Metadata = domain only, plus
+        # the client IP: the full URL is deliberately never stored.
+        QUICK_CHECK_CREATED = "quick_check.created", "Quick check anonyme"
+        # Step 10 (US31, US34-US36): human review workflow. Same dotted
+        # namespace as quick_check.created; metadata stays small (label,
+        # lengths, statuses) - never a comment/note body, never a URL.
+        REPORT_CREATED = "report.created", "Signalement d'un verdict"
+        SCAN_DECIDED = "scan.decided", "Décision d'un analyste"
+        NOTE_ADDED = "note.added", "Note interne d'un analyste"
+        SCAN_RESCANNED = "scan.rescanned", "Nouveau scan relancé par un analyste"
 
     # Qui : FK (filtrage) + copie de l'email (conservée même si le compte disparaît,
     # et utilisable pour une tentative de connexion sur un email inconnu).

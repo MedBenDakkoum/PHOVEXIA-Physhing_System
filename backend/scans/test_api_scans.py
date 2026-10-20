@@ -453,8 +453,15 @@ def test_list_item_fields_are_read_only_projection(auth_client, viewer):
         "score",
         "created_at",
         "finished_at",
+        # Step 10 (US31/US34): owner-facing review flags, never the analyst.
+        "has_report",
+        "report_status",
+        "reviewed_at",
     }
     assert "owner" not in item
+    assert "reviewed_by" not in item
+    assert "review_comment" not in item
+    assert "notes" not in item
 
 
 @pytest.mark.django_db
@@ -495,9 +502,16 @@ def test_detail_owner_can_read_his_scan(auth_client, viewer):
         "score",
         "created_at",
         "finished_at",
+        # Step 10 (US31/US34): owner-facing review flags, never the analyst.
+        "has_report",
+        "report_status",
+        "reviewed_at",
     }
     assert resp.data["id"] == str(scan.public_id)
     assert resp.data["url"] == VALID_URL
+    assert resp.data["has_report"] is False
+    assert resp.data["report_status"] is None
+    assert resp.data["reviewed_at"] is None
 
 
 @pytest.mark.django_db

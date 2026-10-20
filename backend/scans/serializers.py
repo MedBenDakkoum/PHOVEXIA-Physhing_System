@@ -30,6 +30,14 @@ class ScanSerializer(serializers.ModelSerializer):
     """
 
     id = serializers.UUIDField(source="public_id", read_only=True)
+    # Step 10 (US31/US34): owner-facing review outcome. `has_report` and
+    # `report_status` are DB annotations added by
+    # reviews.services.annotate_report_flags() in every view that uses this
+    # serializer (two correlated subqueries, never one query per row).
+    # Analyst identity, analyst notes and the report content stay OUT (ISO-6.6):
+    # they are only reachable through the analyst-only review endpoints.
+    has_report = serializers.BooleanField(read_only=True, default=False)
+    report_status = serializers.CharField(read_only=True, allow_null=True, default=None)
 
     class Meta:
         model = Scan
@@ -43,6 +51,9 @@ class ScanSerializer(serializers.ModelSerializer):
             "score",
             "created_at",
             "finished_at",
+            "has_report",
+            "report_status",
+            "reviewed_at",
         ]
         read_only_fields: ClassVar[list[str]] = list(fields)
 
@@ -88,3 +99,36 @@ class ScanErrorSerializer(serializers.Serializer):
     code = serializers.CharField()
     detail = serializers.CharField()
     errors = serializers.DictField(required=False)
+
+
+class QuickCheckSerializer(serializers.Serializer):
+    """Step 9 - POST /api/quick-check/ body: {"url": "..."} and nothing else."""
+
+    url = serializers.CharField(required=True, allow_blank=True, allow_null=False)
+
+
+class QuickCheckCreatedSerializer(serializers.Serializer):
+    """Step 9 - 202 body: the anonymous scan reference, no other field."""
+
+    id = serializers.UUIDField()
+    status = serializers.CharField(max_length=20)
+
+
+class QuickCheckResultSerializer(serializers.ModelSerializer):
+    """Step 9 - 200 body of GET /api/quick-check/{uuid}/: ONLY these fields.
+
+    The URL, the domain, the mode and the owner are deliberately absent: an
+    anonymous caller gets the verdict of an anonymous scan, nothing more.
+    """
+
+    class Meta:
+        model = Scan
+        fields: ClassVar[list[str]] = ["status", "verdict", "score", "finished_at"]
+        read_only_fields: ClassVar[list[str]] = list(fields)
+
+
+class QuickCheckRateSerializer(serializers.Serializer):
+    """Step 9 - 429 body (BR-02) + the Retry-After header."""
+
+    detail = serializers.CharField()
+    limit = serializers.IntegerField()

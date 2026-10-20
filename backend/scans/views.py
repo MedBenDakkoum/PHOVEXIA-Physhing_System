@@ -22,6 +22,13 @@ Step 8b (US29): the list endpoint accepts the history filters declared in
 `filters.py` (q, verdict, status, created_after, created_before) plus a
 whitelisted `ordering`. Filters always run on top of the owner scope, and an
 invalid filter value answers 400 before any query executes.
+
+Step 9 (US11 / BR-02): anonymous quick check, two AllowAny endpoints.
+POST /api/quick-check/ runs the same BR-07 validation, creates a Scan with
+owner NULL in FAST mode and limits the IP to QUICK_CHECK_HOURLY_LIMIT hits
+per hour through an atomic cache counter. GET /api/quick-check/{uuid}/ shows
+status, verdict, score and finished_at of an anonymous FAST scan only: any
+other scan (owned, or FAST but owned) answers 404.
 """
 from __future__ import annotations
 
@@ -40,7 +47,9 @@ from drf_spectacular.utils import (
 from rest_framework import generics, status
 from rest_framework.filters import OrderingFilter
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 
 from accounts.permissions import IsEndUser
 from audit.models import AuditLog
@@ -49,12 +58,22 @@ from audit.services import record
 from .filters import ScanFilter
 from .models import Scan
 from .serializers import (
+    QuickCheckCreatedSerializer,
+    QuickCheckRateSerializer,
+    QuickCheckResultSerializer,
+    QuickCheckSerializer,
     QuotaExceededSerializer,
     QuotaSerializer,
     ScanCreatedSerializer,
     ScanCreateSerializer,
     ScanErrorSerializer,
     ScanSerializer,
+)
+from .services.quick_check import (
+    QuickCheckRateExceeded,
+    client_ip,
+    hit_quick_check_limit,
+    quick_check_rate_response,
 )
 from .services.quota import (
     QuotaExceeded,
@@ -153,7 +172,11 @@ class ScanListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         # Owner scope only (US29/ISO-6.6): filtering and ordering are the job
         # of the filter backends above, so no client input can widen the query.
-        return self.queryset.filter(owner=self.request.user)
+        # Step 10: two correlated subqueries add the review flags (no N+1).
+        # Local import: reviews.views already imports this module.
+        from reviews.services import annotate_report_flags
+
+        return annotate_report_flags(self.queryset.filter(owner=self.request.user))
 
     @extend_schema(
         tags=["scans"],
@@ -293,7 +316,10 @@ class ScanDetailView(generics.RetrieveAPIView):
         return super().get(request, *args, **kwargs)
 
     def get_object(self):
-        queryset = self.queryset
+        # Step 10: same review annotations as the list (serializer contract).
+        from reviews.services import annotate_report_flags
+
+        queryset = annotate_report_flags(self.queryset)
         if self.request.user.role == User.Role.END_USER:
             queryset = queryset.filter(owner=self.request.user)
         return get_object_or_404(queryset, public_id=self.kwargs["public_id"])
@@ -314,4 +340,127 @@ class ScanQuotaView(generics.GenericAPIView):
     def get(self, request, *args, **kwargs):
         return Response(
             self.get_serializer(get_quota_status(request.user)).data
+        )
+
+
+class QuickCheckView(generics.GenericAPIView):
+    """POST /api/quick-check/ - anonymous quick check (US11 / BR-02).
+
+    AllowAny by design (the visitor has no account). The rate limit is the
+    BR-02 counter of scans.services.quick_check (5/hour/IP by default), so
+    `throttle_classes` is empty on purpose: exactly one limiter, one single
+    429 shape. The counter is consumed BEFORE the URL validation, so a refused
+    URL creates no scan but still burns one unit of the budget.
+    """
+
+    serializer_class = QuickCheckSerializer
+    permission_classes: ClassVar[list] = [AllowAny]
+    throttle_classes: ClassVar[list] = []
+
+    @extend_schema(
+        tags=["quick-check"],
+        request=QuickCheckSerializer,
+        responses={
+            202: QuickCheckCreatedSerializer,
+            400: ScanErrorSerializer,
+            429: QuickCheckRateSerializer,
+        },
+        summary="Vérifier un lien sans compte (US11)",
+        description=(
+            "Valide l'URL (BR-07, protection SSRF), crée un scan anonyme en mode "
+            "fast et le file d'attente Celery. Limite : "
+            "`QUICK_CHECK_HOURLY_LIMIT` par heure et par adresse IP (BR-02), "
+            "sinon 429 avec `Retry-After`. Le corps ne peut contenir que `url` : "
+            "tout autre champ est ignoré. Une URL refusée ne crée aucun scan "
+            "mais consomme une unité du budget horaire."
+        ),
+    )
+    def post(self, request, *args, **kwargs):
+        input_serializer = QuickCheckSerializer(data=request.data)
+        if not input_serializer.is_valid():
+            return Response(
+                {
+                    "code": INVALID_BODY_CODE,
+                    "detail": INVALID_BODY_DETAIL,
+                    "errors": input_serializer.errors,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            # Cache counter first: atomic, independent of the transaction, and
+            # it protects the DNS lookup below from being hammered for free.
+            hit_quick_check_limit(client_ip(request))
+        except QuickCheckRateExceeded as exc:
+            return quick_check_rate_response(exc)
+
+        url = input_serializer.validated_data["url"]
+        try:
+            with transaction.atomic():
+                validated = validate_url(url)
+                scan = Scan.objects.create(
+                    owner=None,
+                    url=validated.url,
+                    domain=validated.host,
+                    mode=Scan.Mode.FAST,
+                    status=Scan.Status.SUBMITTED,
+                )
+                # Domain + IP only: record() stores target_repr built from
+                # `domain`, never the URL and its query string.
+                record(
+                    AuditLog.Action.QUICK_CHECK_CREATED,
+                    request=request,
+                    target=scan,
+                    metadata={"domain": scan.domain},
+                )
+                enqueue_scan(scan)
+        except InvalidURL as exc:
+            return Response(_url_error(exc), status=status.HTTP_400_BAD_REQUEST)
+
+        payload = {"id": scan.public_id, "status": scan.status}
+        return Response(
+            QuickCheckCreatedSerializer(payload).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class QuickCheckDetailView(generics.RetrieveAPIView):
+    """GET /api/quick-check/{uuid}/ - follow an anonymous scan (US11).
+
+    AllowAny, but the queryset is restricted to anonymous FAST scans: an
+    owned scan (whatever its mode) answers 404, so the endpoint can never be
+    used as an oracle on other users' scans. Throttled 60/min per IP.
+    """
+
+    queryset = Scan.objects.all()
+    serializer_class = QuickCheckResultSerializer
+    permission_classes: ClassVar[list] = [AllowAny]
+    throttle_classes: ClassVar[list] = [ScopedRateThrottle]
+    throttle_scope = "quick_check_detail"
+
+    @extend_schema(
+        tags=["quick-check"],
+        responses={
+            200: QuickCheckResultSerializer,
+            404: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "Scan introuvable : UUID inconnu, ou scan possédé par un "
+                    "compte (404 volontaire, jamais 403)."
+                ),
+            ),
+        },
+        summary="Suivre un quick check anonyme (US11)",
+        description=(
+            "Uniquement `status`, `verdict`, `score` et `finished_at`, et "
+            "uniquement pour les scans anonymes en mode fast."
+        ),
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
+    def get_object(self):
+        return get_object_or_404(
+            self.queryset.filter(owner__isnull=True, mode=Scan.Mode.FAST),
+            public_id=self.kwargs["public_id"],
         )
