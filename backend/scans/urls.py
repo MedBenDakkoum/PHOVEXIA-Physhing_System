@@ -1,6 +1,12 @@
 from django.urls import path
 
-from .views import ScanDetailView, ScanListCreateView, ScanQuotaView
+from .views import (
+    QuickCheckDetailView,
+    QuickCheckView,
+    ScanDetailView,
+    ScanListCreateView,
+    ScanQuotaView,
+)
 
 urlpatterns = [
     path("scans/", ScanListCreateView.as_view(), name="scan-list"),
@@ -9,4 +15,11 @@ urlpatterns = [
     path("scans/quota/", ScanQuotaView.as_view(), name="scan-quota"),
     # Step 8a: the public UUID only; the sequential integer pk stays internal.
     path("scans/<uuid:public_id>/", ScanDetailView.as_view(), name="scan-detail"),
+    # Step 9 (US11): anonymous quick check, AllowAny, BR-02 hourly limit.
+    path("quick-check/", QuickCheckView.as_view(), name="quick-check"),
+    path(
+        "quick-check/<uuid:public_id>/",
+        QuickCheckDetailView.as_view(),
+        name="quick-check-detail",
+    ),
 ]

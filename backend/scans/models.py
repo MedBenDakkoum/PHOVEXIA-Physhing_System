@@ -55,6 +55,27 @@ class Scan(models.Model):
     )
     score = models.FloatField("Score", null=True, blank=True)
     error_message = models.TextField("Error message", null=True, blank=True)
+    # Step 10 (US34 / BR-04): human review outcome. Owner-facing data never
+    # includes the analyst identity, only the decision itself (ISO-6.6).
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reviewed_scans",
+    )
+    reviewed_at = models.DateTimeField("Reviewed at", null=True, blank=True)
+    review_comment = models.CharField(
+        "Review comment", max_length=1000, blank=True, default=""
+    )
+    # Step 10 (US36): a rescan is a NEW scan linked to the original one.
+    rescan_of = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="rescans",
+    )
     created_at = models.DateTimeField("Created at", auto_now_add=True)
     updated_at = models.DateTimeField("Updated at", auto_now=True)
     finished_at = models.DateTimeField("Finished at", null=True, blank=True)

@@ -213,6 +213,9 @@ INSTALLED_APPS = [
     'accounts',
     'audit',
     'scans',
+    # Step 10: human review workflow (Report / AnalystNote / Notification).
+    # After 'scans' (string FK references: no load-order constraint).
+    'reviews',
 ]
 
 MIDDLEWARE = [
@@ -309,6 +312,10 @@ USE_TZ = True
 # Same limit for every role (end_user, analyst, admin) - deliberate decision.
 SCAN_DAILY_QUOTA = _positive_int_env("SCAN_DAILY_QUOTA", 20)
 
+# Step 9 / US11 / BR-02: anonymous quick checks per IP per hour. Enforced by
+# an atomic counter in the cache (scans.services.quick_check), not by DRF.
+QUICK_CHECK_HOURLY_LIMIT = _positive_int_env("QUICK_CHECK_HOURLY_LIMIT", 5)
+
 # Detection thresholds (verdict = phishing if score >= upper, legitimate if
 # score <= lower, uncertain in between -> analyst queue). Validated by
 # scans.services.inference.__thresholds(): floats in [0, 1] and lower < upper.
@@ -358,6 +365,10 @@ REST_FRAMEWORK = {
         "register": _throttle_rate_env("THROTTLE_REGISTER", "10/hour"),
         "refresh": _throttle_rate_env("THROTTLE_REFRESH", "60/min"),
         "change_password": _throttle_rate_env("THROTTLE_CHANGE_PASSWORD", "5/hour"),
+        # Step 9: GET /api/quick-check/{uuid}/ (ScopedRateThrottle per IP).
+        "quick_check_detail": _throttle_rate_env(
+            "THROTTLE_QUICK_CHECK_DETAIL", "60/min"
+        ),
     },
     # Step 8d: 0 proxies => the throttle key is REMOTE_ADDR; a client-supplied
     # X-Forwarded-For is NEVER trusted (set N behind N reverse proxies).
@@ -374,6 +385,14 @@ SIMPLE_JWT = {
 SPECTACULAR_SETTINGS = {
     "TITLE": "Phishing Multimodal API",
     "VERSION": "0.1.0",
+    # Step 10: Report.Status (open/resolved) and Scan.Status are both exposed
+    # through a field named "status". Without explicit names for BOTH, the
+    # enum post-processor emits a "non-optimally resolvable collision"
+    # warning and invents unstable enum names (Warnings must stay at 0).
+    "ENUM_NAME_OVERRIDES": {
+        "ScanStatusEnum": "scans.models.Scan.Status",
+        "ReportStatusEnum": "reviews.models.Report.Status",
+    },
 }
 
 # Celery (Step 6) - broker = Redis (REDIS_URL in .env)
