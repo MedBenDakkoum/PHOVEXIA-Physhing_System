@@ -194,11 +194,14 @@ class ScanListCreateView(generics.ListCreateAPIView):
         ],
         description=(
             "Uniquement mes scans, du plus récent au plus ancien, paginé. "
-            "Filtres (US29) : `q` (sous-chaîne de l'URL ou du domaine), "
-            "`verdict`, `status`, `created_after` et `created_before` (ISO 8601, "
-            "bornes inclusives), combinés par ET. Tri : `ordering` limité à "
-            "created_at, finished_at, status, verdict, score (un « - » pour le "
-            "décroissant) ; toute autre valeur retombe sur le tri par défaut. "
+            "Filtres (US29) : `q` (sous-chaîne de l'URL ou du domaine, "
+            "littérale), `verdict`, `status`, `created_after` et "
+            "`created_before` (ISO 8601, bornes inclusives), combinés par ET. "
+            "Une date seule `YYYY-MM-DD` couvre le jour entier dans le fuseau "
+            "de `TIME_ZONE` (les deux jours bornes sont donc inclusifs). "
+            "Tri : `ordering` limité à created_at, finished_at, status, "
+            "verdict, score (un « - » pour le décroissant) ; toute autre "
+            "valeur retombe sur le tri par défaut. "
             "Une valeur de filtre invalide renvoie 400 avant toute requête SQL."
         ),
     )

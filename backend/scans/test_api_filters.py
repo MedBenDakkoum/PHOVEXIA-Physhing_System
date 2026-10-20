@@ -12,11 +12,16 @@ PostgreSQL (see docs/HANDOFF.md).
 Requirement tags: US29 (history with search and filters), US16 (follow-up),
 US30 (scan detail unchanged), ISO-6.1 (functional suitability),
 ISO-6.6 (a filter can never widen the owner scope).
+
+Gap check (19 Oct 2026): query budget constant as the table grows, q treats
+%, _, ' and " literally, bare dates (YYYY-MM-DD) cover the whole local day in
+settings.TIME_ZONE, malformed dates are 400 on both bound parameters.
 """
 from datetime import UTC, datetime
 
 import pytest
 from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from rest_framework import status as http_status
 
@@ -271,14 +276,15 @@ def test_created_after_a_moment_with_no_scan_returns_empty(auth_client, viewer):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("field", ["created_after", "created_before"])
 @pytest.mark.parametrize("value", ["not-a-date", "2026-99-99T00:00:00Z", "10/12/2026"])
-def test_malformed_date_is_400(auth_client, viewer, value):
+def test_malformed_date_is_400(auth_client, viewer, field, value):
     make_scan(viewer)
 
-    resp = auth_client.get(reverse(SCAN_LIST), {"created_after": value})
+    resp = auth_client.get(reverse(SCAN_LIST), {field: value})
 
     assert resp.status_code == http_status.HTTP_400_BAD_REQUEST
-    assert "created_after" in resp.data
+    assert field in resp.data
 
 
 # --- combinations, isolation and permissions ----------------------------------
@@ -482,3 +488,225 @@ def test_openapi_schema_documents_the_history_filters():
     assert set(ORDERING_VALUES) == set(ORDERING_WHITELIST) | {
         f"-{name}" for name in ORDERING_WHITELIST
     }
+
+
+# --- gap check (19 Oct 2026): query budget, literal q, day-inclusive dates ----
+
+
+@pytest.mark.django_db
+def test_list_query_count_is_the_same_with_1_and_with_50_scans(auth_client, viewer):
+    """US29 / ISO-6.2: filters + pagination must not add queries as data grows."""
+    make_scan(viewer, url="https://one.example.com")
+
+    with CaptureQueriesContext(connection) as with_one:
+        resp = auth_client.get(reverse(SCAN_LIST), {"q": "example"})
+        assert resp.status_code == http_status.HTTP_200_OK
+        assert resp.data["count"] == 1
+
+    for i in range(49):
+        make_scan(viewer, url=f"https://bulk{i:02d}.example.com")
+
+    with CaptureQueriesContext(connection) as with_fifty:
+        resp = auth_client.get(reverse(SCAN_LIST), {"q": "example"})
+        assert resp.status_code == http_status.HTTP_200_OK
+        assert resp.data["count"] == 50
+
+    # same number of SQL queries whether the owner has 1 or 50 matching scans
+    assert len(with_fifty.captured_queries) == len(with_one.captured_queries)
+
+
+@pytest.mark.django_db
+def test_q_treats_percent_as_a_literal_character(auth_client, viewer):
+    """`%` is not a SQL wildcard here: 100% does not match 1000."""
+    literal = make_scan(viewer, url="https://example.com/100%done")
+    make_scan(viewer, url="https://example.com/1000done")
+
+    resp = auth_client.get(reverse(SCAN_LIST), {"q": "100%"})
+
+    assert resp.status_code == http_status.HTTP_200_OK
+    assert results(resp) == [str(literal.public_id)]
+
+
+@pytest.mark.django_db
+def test_q_treats_underscore_as_a_literal_character(auth_client, viewer):
+    """`_` is not a single-character SQL wildcard here: ab_cd does not match abXd."""
+    literal = make_scan(viewer, url="https://example.com/ab_cd")
+    make_scan(viewer, url="https://example.com/abXd")
+
+    resp = auth_client.get(reverse(SCAN_LIST), {"q": "ab_cd"})
+
+    assert resp.status_code == http_status.HTTP_200_OK
+    assert results(resp) == [str(literal.public_id)]
+
+
+@pytest.mark.django_db
+def test_q_treats_single_and_double_quotes_literally(auth_client, viewer):
+    obrien = make_scan(viewer, url="https://example.com/O'Brien")
+    quoted = make_scan(viewer, url='https://example.com/say"hi')
+
+    resp = auth_client.get(reverse(SCAN_LIST), {"q": "O'Brien"})
+    assert resp.status_code == http_status.HTTP_200_OK
+    assert results(resp) == [str(obrien.public_id)]
+
+    resp = auth_client.get(reverse(SCAN_LIST), {"q": 'say"hi'})
+    assert resp.status_code == http_status.HTTP_200_OK
+    assert results(resp) == [str(quoted.public_id)]
+
+
+@pytest.mark.django_db
+def test_q_with_a_sql_injection_string_is_200_and_matches_nothing(auth_client, viewer):
+    make_scan(viewer, url="https://example.com/safe")
+
+    resp = auth_client.get(reverse(SCAN_LIST), {"q": "'; DROP TABLE scans_scan; --"})
+
+    assert resp.status_code == http_status.HTTP_200_OK
+    assert resp.data["count"] == 0
+    # the table still exists and the scan is untouched
+    assert Scan.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_q_matching_only_another_users_domain_returns_empty(make_user, api_client):
+    """q never leaks a foreign scan even when it matches only that scan's domain."""
+    me = make_user(email="me-gap@example.com")
+    other = make_user(email="other-gap@example.com")
+    make_scan(me, url="https://mine.example.com")
+    make_scan(other, url="https://bank-secure.example.com")
+
+    api_client.force_authenticate(me)
+    resp = api_client.get(reverse(SCAN_LIST), {"q": "bank-secure"})
+
+    assert resp.status_code == http_status.HTTP_200_OK
+    assert resp.data["count"] == 0
+    assert resp.data["results"] == []
+
+
+# --- gap check: bare dates = the whole local day in settings.TIME_ZONE --------
+
+
+@pytest.mark.django_db
+def test_date_only_created_after_keeps_the_whole_local_day(auth_client, viewer, settings):
+    """YYYY-MM-DD is read as a calendar day in TIME_ZONE (Africa/Tunis, UTC+1).
+
+    2026-10-09 22:30 UTC = 9 Oct 23:30 Tunis -> excluded.
+    2026-10-09 23:30 UTC = 10 Oct 00:30 Tunis -> included.
+    """
+    settings.TIME_ZONE = "Africa/Tunis"
+
+    before_midnight = make_scan(
+        viewer,
+        url="https://a.example.com",
+        created_at=datetime(2026, 10, 9, 22, 30, tzinfo=UTC),
+    )
+    after_midnight = make_scan(
+        viewer,
+        url="https://b.example.com",
+        created_at=datetime(2026, 10, 9, 23, 30, tzinfo=UTC),
+    )
+
+    resp = auth_client.get(reverse(SCAN_LIST), {"created_after": "2026-10-10"})
+
+    assert resp.status_code == http_status.HTTP_200_OK
+    assert results(resp) == [str(after_midnight.public_id)]
+    assert str(before_midnight.public_id) not in results(resp)
+
+
+@pytest.mark.django_db
+def test_date_only_created_before_keeps_the_whole_local_day(auth_client, viewer, settings):
+    """created_before=YYYY-MM-DD keeps the WHOLE bound day inclusive.
+
+    2026-10-10 22:30 UTC = 10 Oct 23:30 Tunis -> included (end of bound day).
+    2026-10-10 23:30 UTC = 11 Oct 00:30 Tunis -> excluded (next local day).
+    """
+    settings.TIME_ZONE = "Africa/Tunis"
+
+    end_of_day = make_scan(
+        viewer,
+        url="https://a.example.com",
+        created_at=datetime(2026, 10, 10, 22, 30, tzinfo=UTC),
+    )
+    after_end = make_scan(
+        viewer,
+        url="https://b.example.com",
+        created_at=datetime(2026, 10, 10, 23, 30, tzinfo=UTC),
+    )
+
+    resp = auth_client.get(reverse(SCAN_LIST), {"created_before": "2026-10-10"})
+
+    assert resp.status_code == http_status.HTTP_200_OK
+    assert results(resp) == [str(end_of_day.public_id)]
+    assert str(after_end.public_id) not in results(resp)
+
+
+@pytest.mark.django_db
+def test_date_only_after_and_before_same_day_form_a_full_local_day(
+    auth_client, viewer, settings
+):
+    """created_after=created_before=D keeps exactly the local day D (both ends)."""
+    settings.TIME_ZONE = "Africa/Tunis"
+
+    before_midnight = make_scan(
+        viewer,
+        url="https://a.example.com",
+        created_at=datetime(2026, 10, 9, 22, 30, tzinfo=UTC),
+    )
+    first = make_scan(
+        viewer,
+        url="https://b.example.com",
+        created_at=datetime(2026, 10, 9, 23, 30, tzinfo=UTC),
+    )
+    noon = make_scan(
+        viewer,
+        url="https://c.example.com",
+        created_at=datetime(2026, 10, 10, 12, 0, tzinfo=UTC),
+    )
+    last = make_scan(
+        viewer,
+        url="https://d.example.com",
+        created_at=datetime(2026, 10, 10, 22, 30, tzinfo=UTC),
+    )
+    after_end = make_scan(
+        viewer,
+        url="https://e.example.com",
+        created_at=datetime(2026, 10, 10, 23, 30, tzinfo=UTC),
+    )
+
+    resp = auth_client.get(
+        reverse(SCAN_LIST),
+        {"created_after": "2026-10-10", "created_before": "2026-10-10"},
+    )
+
+    assert resp.status_code == http_status.HTTP_200_OK
+    # newest first: last (23:30 local), noon (13:00 local), first (00:30 local)
+    assert results(resp) == [
+        str(last.public_id),
+        str(noon.public_id),
+        str(first.public_id),
+    ]
+    assert str(before_midnight.public_id) not in results(resp)
+    assert str(after_end.public_id) not in results(resp)
+
+
+@pytest.mark.django_db
+def test_full_iso_datetime_bounds_keep_the_exact_instant(auth_client, viewer, settings):
+    """A full ISO datetime is NOT widened to a day (behaviour unchanged)."""
+    settings.TIME_ZONE = "Africa/Tunis"
+
+    at_bound = make_scan(
+        viewer,
+        url="https://a.example.com",
+        created_at=datetime(2026, 10, 10, 9, 0, tzinfo=UTC),
+    )
+    one_second_after = make_scan(
+        viewer,
+        url="https://b.example.com",
+        created_at=datetime(2026, 10, 10, 9, 0, 1, tzinfo=UTC),
+    )
+
+    resp = auth_client.get(
+        reverse(SCAN_LIST), {"created_before": iso(datetime(2026, 10, 10, 9, 0, tzinfo=UTC))}
+    )
+
+    assert resp.status_code == http_status.HTTP_200_OK
+    assert results(resp) == [str(at_bound.public_id)]
+    assert str(one_second_after.public_id) not in results(resp)
