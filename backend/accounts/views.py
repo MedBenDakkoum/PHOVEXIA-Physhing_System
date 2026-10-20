@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django_filters.rest_framework import DjangoFilterBackend
@@ -5,11 +7,12 @@ from rest_framework import filters, generics, mixins, status, viewsets
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework.exceptions import ValidationError
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from audit.models import AuditLog
 from audit.services import record
@@ -24,6 +27,9 @@ User = get_user_model()
 class RegisterView(generics.CreateAPIView):
     serializer_class = RegisterSerializer
     permission_classes = [AllowAny]
+    # Step 8d: THROTTLE_REGISTER per IP (rate in settings.DEFAULT_THROTTLE_RATES).
+    throttle_classes: ClassVar[list] = [ScopedRateThrottle]
+    throttle_scope = "register"
 
     def perform_create(self, serializer):
         user = serializer.save()
@@ -32,6 +38,11 @@ class RegisterView(generics.CreateAPIView):
 
 class LoginView(TokenObtainPairView):
     """Connexion JWT + journalisation des succès et des échecs."""
+
+    # Step 8d: THROTTLE_LOGIN per IP, applied BEFORE the credentials are read,
+    # so a throttled attempt writes no audit entry and reveals nothing.
+    throttle_classes: ClassVar[list] = [ScopedRateThrottle]
+    throttle_scope = "login"
 
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -49,6 +60,18 @@ class LoginView(TokenObtainPairView):
         return Response(serializer.validated_data, status=status.HTTP_200_OK)
 
 
+class ThrottledTokenRefreshView(TokenRefreshView):
+    """Takes a refresh type JSON web token and returns an access type JSON web
+    token if the refresh token is valid.
+
+    Step 8d: throttled, THROTTLE_REFRESH per IP (default 60/min), rate read
+    from settings.REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"].
+    """
+
+    throttle_classes: ClassVar[list] = [ScopedRateThrottle]
+    throttle_scope = "refresh"
+
+
 class MeView(generics.RetrieveUpdateAPIView):
     serializer_class = UserSerializer
     permission_classes = [IsEndUser]
@@ -59,6 +82,9 @@ class MeView(generics.RetrieveUpdateAPIView):
 
 class ChangePasswordView(APIView):
     permission_classes = [IsEndUser]
+    # Step 8d: THROTTLE_CHANGE_PASSWORD per USER (authenticated -> key = pk).
+    throttle_classes: ClassVar[list] = [ScopedRateThrottle]
+    throttle_scope = "change_password"
 
     def post(self, request):
         s = ChangePasswordSerializer(data=request.data, context={"request": request})

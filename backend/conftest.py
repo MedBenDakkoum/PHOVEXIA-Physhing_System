@@ -14,6 +14,7 @@ def _fast_hasher(settings):
 
 @pytest.fixture(autouse=True)
 def _clear_throttle_cache():
+    """Step 8d: every test starts with empty DRF throttle counters."""
     cache.clear()
     yield
     cache.clear()

@@ -2,6 +2,7 @@ import logging
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -71,6 +72,127 @@ def _float_env(name: str, default: float) -> float:
         )
         return default
     return value
+
+
+def _non_negative_int_env(name: str, default: int) -> int:
+    """Read an int env var >= 0; fall back to `default` with a warning if invalid.
+
+    Used for NUM_PROXIES (Step 8d): 0 = the throttle key is REMOTE_ADDR only,
+    a client-supplied X-Forwarded-For is never trusted.
+    """
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        logger.warning(
+            "Invalid %s=%r: not an integer; falling back to %d.", name, raw, default
+        )
+        return default
+    if value < 0:
+        logger.warning(
+            "Invalid %s=%r: must be >= 0; falling back to %d.", name, raw, default
+        )
+        return default
+    return value
+
+
+def _throttle_rate_env(name: str, default: str) -> str:
+    """Read a DRF throttle rate env var; raise ImproperlyConfigured if invalid.
+
+    Accepted format = the one DRF's SimpleRateThrottle.parse_rate() parses:
+    "<count>/<period>" where the first letter of the period is one of
+    s, m, h, d (examples: "10/min", "10/hour"). An invalid rate FAILS AT
+    STARTUP on purpose: silently falling back to the default would let an
+    operator believe a limit is active when it is not. count must be >= 1
+    ("0/..." would lock every client out). Unset/empty keeps `default`.
+    """
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    rate = raw.strip()
+    try:
+        num, period = rate.split("/")
+        count = int(num)
+    except ValueError as exc:
+        raise ImproperlyConfigured(
+            f"Invalid {name}={rate!r}: expected '<count>/<period>' with the "
+            f"period starting with one of s, m, h, d (example: '10/min')."
+        ) from exc
+    if not period or period[0] not in "smhd":
+        raise ImproperlyConfigured(
+            f"Invalid {name}={rate!r}: the period must start with one of "
+            f"s, m, h, d (example: '10/min')."
+        )
+    if count < 1:
+        raise ImproperlyConfigured(
+            f"Invalid {name}={rate!r}: the count must be >= 1."
+        )
+    return rate
+
+
+def _redis_cache_url() -> str:
+    """Cache URL derived from REDIS_URL, pointing at Redis DB 1 ("" = no Redis).
+
+    DB 1 on purpose: DB 0 is the Celery broker and Django's cache.clear()
+    issues FLUSHDB on this database, which would wipe the Celery keys
+    (AGENTS.md lesson learned).
+    """
+    redis_url = os.getenv("REDIS_URL", "").strip()
+    if not redis_url:
+        return ""
+    base, sep, query = redis_url.partition("?")
+    base = base.rstrip("/")
+    suffix = f"?{query}" if sep else ""
+    tail = base.rsplit("/", 1)[-1]
+    if tail.isdigit():
+        return f"{base.rsplit('/', 1)[0]}/1{suffix}"
+    return f"{base}/1{suffix}"
+
+
+def _caches_config() -> dict:
+    """Step 8d: DRF throttle counters must be shared by every process.
+
+    Redis is the real counter store (REDIS_URL in .env, DB 1). If it is not
+    configured or not reachable, fall back to LocMemCache WITH a warning:
+    LocMem is per process and cannot protect a multi-process deployment.
+    Any failure (no redis package, bad URL, timeout) must NOT crash startup.
+    """
+    url = _redis_cache_url()
+    if not url:
+        logger.warning(
+            "REDIS_URL is not set; using LocMemCache for the throttle counters "
+            "(per process only, NOT a protection for production)."
+        )
+    else:
+        try:
+            # Lazy import: only needed for the startup probe.
+            import redis
+
+            redis.Redis.from_url(
+                url, socket_connect_timeout=1, socket_timeout=1
+            ).ping()
+        except Exception as exc:  # noqa: BLE001 - startup must never crash on the probe
+            logger.warning(
+                "Redis cache %s unreachable (%s); falling back to LocMemCache "
+                "(per process only, NOT a protection for production).",
+                url,
+                exc,
+            )
+        else:
+            return {
+                "default": {
+                    "BACKEND": "django.core.cache.backends.redis.RedisCache",
+                    "LOCATION": url,
+                }
+            }
+    return {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "phishing-throttle",
+        }
+    }
 
 
 # Application definition
@@ -213,6 +335,9 @@ from datetime import timedelta
 
 AUTH_USER_MODEL = "accounts.User"
 
+# Step 8d: cache = counter store of the DRF throttles (see _caches_config).
+CACHES = _caches_config()
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
         "rest_framework_simplejwt.authentication.JWTAuthentication",
@@ -224,7 +349,19 @@ REST_FRAMEWORK = {
         "rest_framework.throttling.AnonRateThrottle",
         "rest_framework.throttling.UserRateThrottle",
     ],
-    "DEFAULT_THROTTLE_RATES": {"anon": "30/min", "user": "120/min"},
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "30/min",
+        "user": "120/min",
+        # Step 8d: auth endpoints (ScopedRateThrottle in accounts/views.py),
+        # rates overridable from .env, invalid values fail at startup.
+        "login": _throttle_rate_env("THROTTLE_LOGIN", "10/min"),
+        "register": _throttle_rate_env("THROTTLE_REGISTER", "10/hour"),
+        "refresh": _throttle_rate_env("THROTTLE_REFRESH", "60/min"),
+        "change_password": _throttle_rate_env("THROTTLE_CHANGE_PASSWORD", "5/hour"),
+    },
+    # Step 8d: 0 proxies => the throttle key is REMOTE_ADDR; a client-supplied
+    # X-Forwarded-For is NEVER trusted (set N behind N reverse proxies).
+    "NUM_PROXIES": _non_negative_int_env("NUM_PROXIES", 0),
 }
 
 SIMPLE_JWT = {
