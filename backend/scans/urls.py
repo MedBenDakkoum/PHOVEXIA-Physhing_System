@@ -23,3 +23,5 @@ urlpatterns = [
         name="quick-check-detail",
     ),
 ]
+
+# by ip
