@@ -251,7 +251,10 @@ class ReviewDecisionView(generics.GenericAPIView):
             "`decision` = `confirm_phishing` (→ `confirmed`) ou `false_positive` "
             "(→ `false_positive`), uniquement depuis `under_review` (BR-04, sinon "
             "409). Enregistre l'analyste, la date et le commentaire, résout le "
-            "signalement et notifie son auteur (US57). Audit : `scan.decided`."
+            "signalement et notifie son auteur (US57). Audit : `scan.decided`. "
+            "`add_to_blocklist` (optionnel, uniquement avec confirm_phishing) "
+            "ajoute le domaine à la blocklist dans la même transaction et fait "
+            "passer le scan de `confirmed` à `blocked` (US38/US41)."
         ),
     )
     def post(self, request, *args, **kwargs):
@@ -261,7 +264,8 @@ class ReviewDecisionView(generics.GenericAPIView):
                 {
                     "code": INVALID_BODY_CODE,
                     "detail": "Corps de requête invalide : decision requis "
-                    "(confirm_phishing ou false_positive), commentaire optionnel.",
+                    "(confirm_phishing ou false_positive), commentaire optionnel, "
+                    "add_to_blocklist optionnel (uniquement avec confirm_phishing).",
                     "errors": input_serializer.errors,
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -274,6 +278,7 @@ class ReviewDecisionView(generics.GenericAPIView):
                 analyst=request.user,
                 decision=data["decision"],
                 comment=data.get("comment", ""),
+                add_to_blocklist=data.get("add_to_blocklist", False),
                 request=request,
             )
         except NotDecidable:

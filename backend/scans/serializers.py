@@ -38,6 +38,9 @@ class ScanSerializer(serializers.ModelSerializer):
     # they are only reachable through the analyst-only review endpoints.
     has_report = serializers.BooleanField(read_only=True, default=False)
     report_status = serializers.CharField(read_only=True, allow_null=True, default=None)
+    # Step 11 (US41): model or blocklist. Exposed so the UI can explain an
+    # immediate verdict ("domaine déjà bloqué").
+    detection_source = serializers.CharField(read_only=True)
 
     class Meta:
         model = Scan
@@ -49,6 +52,7 @@ class ScanSerializer(serializers.ModelSerializer):
             "status",
             "verdict",
             "score",
+            "detection_source",
             "created_at",
             "finished_at",
             "has_report",
@@ -71,11 +75,14 @@ class ScanCreatedSerializer(serializers.Serializer):
     """202 body of POST /api/scans/: the created scan + the quota after it.
 
     Step 8a: `id` is the public UUID, matching the detail URL /api/scans/<uuid>/.
+    Step 11: `detection_source` distinguishes a model verdict from an immediate
+    blocklist hit (US41).
     """
 
     id = serializers.UUIDField()
     url = serializers.CharField(max_length=2048)
     status = serializers.CharField(max_length=20)
+    detection_source = serializers.CharField(max_length=10)
     created_at = serializers.DateTimeField()
     quota = QuotaSerializer()
 
@@ -119,11 +126,19 @@ class QuickCheckResultSerializer(serializers.ModelSerializer):
 
     The URL, the domain, the mode and the owner are deliberately absent: an
     anonymous caller gets the verdict of an anonymous scan, nothing more.
+    `detection_source` (Step 11 / US41) tells whether the verdict came from
+    the model or from an immediate blocklist hit.
     """
 
     class Meta:
         model = Scan
-        fields: ClassVar[list[str]] = ["status", "verdict", "score", "finished_at"]
+        fields: ClassVar[list[str]] = [
+            "status",
+            "verdict",
+            "score",
+            "detection_source",
+            "finished_at",
+        ]
         read_only_fields: ClassVar[list[str]] = list(fields)
 
 

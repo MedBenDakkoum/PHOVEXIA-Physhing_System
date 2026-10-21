@@ -1,0 +1,2798 @@
+openapi: 3.0.3
+info:
+  title: Phishing Multimodal API
+  version: 0.1.0
+paths:
+  /api/audit/logs/:
+    get:
+      operationId: audit_logs_list
+      description: 'Journal d''audit : lecture seule, paginé, filtrable, réservé à
+        l''administrateur.'
+      parameters:
+      - in: query
+        name: action
+        schema:
+          type: string
+          enum:
+          - blocklist.added
+          - blocklist.exported
+          - blocklist.removed
+          - blocklist_add
+          - blocklist_remove
+          - decision
+          - login_failed
+          - login_success
+          - model_update
+          - note.added
+          - quick_check.created
+          - register
+          - report.created
+          - role_change
+          - scan.decided
+          - scan.rescanned
+          - scan_created
+          - scan_status_changed
+          - user_reactivate
+          - user_suspend
+        description: |-
+          * `register` - Inscription
+          * `login_success` - Connexion réussie
+          * `login_failed` - Connexion échouée
+          * `role_change` - Changement de rôle
+          * `user_suspend` - Suspension d'un compte
+          * `user_reactivate` - Réactivation d'un compte
+          * `decision` - Décision
+          * `blocklist_add` - Ajout à la blocklist
+          * `blocklist_remove` - Retrait de la blocklist
+          * `model_update` - Modèle
+          * `scan_created` - Création d'un scan
+          * `scan_status_changed` - Changement de statut d'un scan
+          * `quick_check.created` - Quick check anonyme
+          * `report.created` - Signalement d'un verdict
+          * `scan.decided` - Décision d'un analyste
+          * `note.added` - Note interne d'un analyste
+          * `scan.rescanned` - Nouveau scan relancé par un analyste
+          * `blocklist.added` - Ajout à la blocklist
+          * `blocklist.removed` - Retrait de la blocklist
+          * `blocklist.exported` - Export de la blocklist
+      - in: query
+        name: date_from
+        schema:
+          type: string
+          format: date
+      - in: query
+        name: date_to
+        schema:
+          type: string
+          format: date
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: user
+        schema:
+          type: number
+      - in: query
+        name: user_email
+        schema:
+          type: string
+      tags:
+      - audit
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAuditLogList'
+          description: ''
+  /api/audit/logs/{id}/:
+    get:
+      operationId: audit_logs_retrieve
+      description: 'Journal d''audit : lecture seule, paginé, filtrable, réservé à
+        l''administrateur.'
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this audit log.
+        required: true
+      tags:
+      - audit
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditLog'
+          description: ''
+  /api/auth/change-password/:
+    post:
+      operationId: auth_change_password_create
+      tags:
+      - auth
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/auth/login/:
+    post:
+      operationId: auth_login_create
+      description: Connexion JWT + journalisation des succès et des échecs.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenObtainPair'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenObtainPair'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenObtainPair'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenObtainPair'
+          description: ''
+  /api/auth/logout/:
+    post:
+      operationId: auth_logout_create
+      tags:
+      - auth
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/auth/me/:
+    get:
+      operationId: auth_me_retrieve
+      tags:
+      - auth
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+    put:
+      operationId: auth_me_update
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/User'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/User'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/User'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+    patch:
+      operationId: auth_me_partial_update
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUser'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUser'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUser'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+  /api/auth/refresh/:
+    post:
+      operationId: auth_refresh_create
+      description: |-
+        Takes a refresh type JSON web token and returns an access type JSON web
+        token if the refresh token is valid.
+
+        Step 8d: throttled, THROTTLE_REFRESH per IP (default 60/min), rate read
+        from settings.REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"].
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenRefresh'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefresh'
+          description: ''
+  /api/auth/register/:
+    post:
+      operationId: auth_register_create
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Register'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Register'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Register'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Register'
+          description: ''
+  /api/auth/users/:
+    get:
+      operationId: auth_users_list
+      description: Gestion des utilisateurs (admin uniquement). DELETE = suspension
+        du compte.
+      parameters:
+      - in: query
+        name: is_active
+        schema:
+          type: boolean
+      - in: query
+        name: role
+        schema:
+          type: string
+          enum:
+          - admin
+          - analyst
+          - end_user
+        description: |-
+          * `admin` - Administrateur
+          * `analyst` - Analyste
+          * `end_user` - Utilisateur
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - auth
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminUser'
+          description: ''
+  /api/auth/users/{id}/:
+    get:
+      operationId: auth_users_retrieve
+      description: Gestion des utilisateurs (admin uniquement). DELETE = suspension
+        du compte.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - auth
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+          description: ''
+    put:
+      operationId: auth_users_update
+      description: Gestion des utilisateurs (admin uniquement). DELETE = suspension
+        du compte.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminUser'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AdminUser'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AdminUser'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+          description: ''
+    patch:
+      operationId: auth_users_partial_update
+      description: Gestion des utilisateurs (admin uniquement). DELETE = suspension
+        du compte.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedAdminUser'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedAdminUser'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedAdminUser'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+          description: ''
+    delete:
+      operationId: auth_users_destroy
+      description: Gestion des utilisateurs (admin uniquement). DELETE = suspension
+        du compte.
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - auth
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/blocklist/:
+    get:
+      operationId: blocklist_list
+      description: 'Uniquement les entrées actives. Filtres : `q` (sous-chaîne du
+        domaine ou de la note), `reason`, `added_by` (email), `created_after`, `created_before`
+        (une date seule = le jour entier local). `ordering` : created_at, domain,
+        reason (« - » pour le décroissant).'
+      summary: Lister la blocklist (US38)
+      parameters:
+      - in: query
+        name: added_by
+        schema:
+          type: string
+      - in: query
+        name: created_after
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: created_before
+        schema:
+          type: string
+          format: date-time
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: q
+        schema:
+          type: string
+      - in: query
+        name: reason
+        schema:
+          type: string
+          enum:
+          - campaign
+          - confirmed_phishing
+          - manual
+        description: |-
+          * `confirmed_phishing` - Confirmed phishing
+          * `campaign` - Campaign
+          * `manual` - Manual
+      tags:
+      - blocklist
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedBlocklistEntryList'
+          description: ''
+    post:
+      operationId: blocklist_create
+      description: 'Le domaine est normalisé (minuscules, IDNA/punycode, sans point
+        final ; une adresse IP est refusée). BR-03 : une seule entrée active par domaine,
+        sinon 409 `already_blocked`. Audit : `blocklist.added`.'
+      summary: Ajouter un domaine à la blocklist (US38)
+      tags:
+      - blocklist
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BlocklistCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BlocklistCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BlocklistCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlocklistEntry'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanError'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: 'Conflit (409) : `code` = `already_blocked` (BR-03).'
+  /api/blocklist/{public_id}/:
+    delete:
+      operationId: blocklist_destroy
+      description: 'Soft delete : la ligne est conservée (historique + audit) mais
+        `is_active` passe à false. BR-12 : le corps `{"reason": ...}` est OBLIGATOIRE
+        et non vide, sinon 400. Audit : `blocklist.removed`.'
+      summary: Retirer un domaine de la blocklist (US39)
+      parameters:
+      - in: path
+        name: public_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - blocklist
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: Entrée désactivée (soft delete) + audit blocklist.removed.
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlocklistError'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: Entrée inconnue ou déjà retirée (404).
+  /api/blocklist/export/:
+    get:
+      operationId: blocklist_export_retrieve
+      description: GET /api/blocklist/export/ - CSV stream of active entries (US40).
+      summary: Exporter la blocklist en CSV (US40)
+      tags:
+      - blocklist
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: string
+          description: 'Fichier CSV (domain, reason, note, added_by, created_at) des
+            entrées actives. Protection anti injection CSV : une cellule commençant
+            par = + - @ reçoit un apostrophe en tête. Audit : `blocklist.exported`.'
+  /api/brands/:
+    get:
+      operationId: brands_list
+      description: Réservé aux administrateurs.
+      summary: Lister les marques protégées (US55)
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - brands
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedProtectedBrandList'
+          description: ''
+    post:
+      operationId: brands_create
+      description: 'Admin uniquement. Le domaine est normalisé (minuscules, IDNA/punycode)
+        et unique. Audit : pas d''action dédiée, l''entrée est visible dans le journal
+        via la cible.'
+      summary: Créer une marque protégée (US55)
+      tags:
+      - brands
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProtectedBrandCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProtectedBrandCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProtectedBrandCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProtectedBrand'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanError'
+          description: ''
+  /api/brands/{public_id}/:
+    get:
+      operationId: brands_retrieve
+      description: PATCH/DELETE /api/brands/{uuid}/ - ADMIN ONLY (US55).
+      parameters:
+      - in: path
+        name: public_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - brands
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProtectedBrand'
+          description: ''
+    put:
+      operationId: brands_update
+      description: PATCH/DELETE /api/brands/{uuid}/ - ADMIN ONLY (US55).
+      parameters:
+      - in: path
+        name: public_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - brands
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProtectedBrand'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ProtectedBrand'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ProtectedBrand'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProtectedBrand'
+          description: ''
+    patch:
+      operationId: brands_partial_update
+      description: 'Admin uniquement. Champs optionnels : name, domain, is_active.'
+      summary: Modifier une marque protégée (US55)
+      parameters:
+      - in: path
+        name: public_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - brands
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedProtectedBrandPatch'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedProtectedBrandPatch'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedProtectedBrandPatch'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProtectedBrand'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanError'
+          description: ''
+    delete:
+      operationId: brands_destroy
+      description: PATCH/DELETE /api/brands/{uuid}/ - ADMIN ONLY (US55).
+      parameters:
+      - in: path
+        name: public_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - brands
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/notifications/:
+    get:
+      operationId: notifications_list
+      description: Uniquement les miennes, non lues d'abord, paginées. La réponse
+        contient aussi `unread_count`.
+      summary: Mes notifications (US57)
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - notifications
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedNotificationList'
+          description: ''
+  /api/notifications/{public_id}/read/:
+    post:
+      operationId: notifications_read_create
+      description: 'Positivement idempotent : déjà lue → 200 inchangé. La notification
+        d''un autre compte (ou un UUID inconnu) répond 404, jamais 403.'
+      summary: Marquer une notification comme lue (US57)
+      parameters:
+      - in: path
+        name: public_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - notifications
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Notification'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Notification'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Notification'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notification'
+          description: ''
+  /api/quick-check/:
+    post:
+      operationId: quick_check_create
+      description: 'Valide l''URL (BR-07, protection SSRF), crée un scan anonyme en
+        mode fast et le file d''attente Celery. Limite : `QUICK_CHECK_HOURLY_LIMIT`
+        par heure et par adresse IP (BR-02), sinon 429 avec `Retry-After`. Le corps
+        ne peut contenir que `url` : tout autre champ est ignoré. Une URL refusée
+        ne crée aucun scan mais consomme une unité du budget horaire.'
+      summary: Vérifier un lien sans compte (US11)
+      tags:
+      - quick-check
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuickCheck'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/QuickCheck'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/QuickCheck'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuickCheckCreated'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuickCheckRate'
+          description: ''
+  /api/quick-check/{public_id}/:
+    get:
+      operationId: quick_check_retrieve
+      description: Uniquement `status`, `verdict`, `score` et `finished_at`, et uniquement
+        pour les scans anonymes en mode fast.
+      summary: Suivre un quick check anonyme (US11)
+      parameters:
+      - in: path
+        name: public_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - quick-check
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuickCheckResult'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: 'Scan introuvable : UUID inconnu, ou scan possédé par un compte
+            (404 volontaire, jamais 403).'
+  /api/review/{public_id}/:
+    get:
+      operationId: review_retrieve
+      description: Le scan, son signalement (label revendiqué, commentaire, statut),
+        les notes internes des analysts et l'information de décision (analyste, date,
+        commentaire). Visible analyste et admin uniquement.
+      summary: Détail d'un cas de revue (US33)
+      parameters:
+      - in: path
+        name: public_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - review
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewDetail'
+          description: ''
+  /api/review/{public_id}/decision/:
+    post:
+      operationId: review_decision_create
+      description: '`decision` = `confirm_phishing` (→ `confirmed`) ou `false_positive`
+        (→ `false_positive`), uniquement depuis `under_review` (BR-04, sinon 409).
+        Enregistre l''analyste, la date et le commentaire, résout le signalement et
+        notifie son auteur (US57). Audit : `scan.decided`. `add_to_blocklist` (optionnel,
+        uniquement avec confirm_phishing) ajoute le domaine à la blocklist dans la
+        même transaction et fait passer le scan de `confirmed` à `blocked` (US38/US41).'
+      summary: Décider d'un cas (US34)
+      parameters:
+      - in: path
+        name: public_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - review
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Decision'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Decision'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Decision'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewDetail'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanError'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: Scan introuvable (404).
+        '409':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: 'Conflit (409) : `code` = `already_reported` (BR-05), `not_reportable`
+            (statut du scan) ou `not_decidable` (BR-04).'
+  /api/review/{public_id}/notes/:
+    post:
+      operationId: review_notes_create
+      description: 'Note visible des analysts et admins uniquement, jamais du propriétaire
+        du scan. Audit : `note.added` (longueur seulement, jamais le texte).'
+      summary: Ajouter une note interne (US35)
+      parameters:
+      - in: path
+        name: public_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - review
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NoteCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/NoteCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/NoteCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Note'
+          description: ''
+  /api/review/{public_id}/rescan/:
+    post:
+      operationId: review_rescan_create
+      description: 'Crée un NOUVEAU scan (même URL, mode full, propriétaire = l''analyste,
+        `rescan_of` = l''original), revalidé (BR-07) et compté dans le quota quotidien
+        de l''analyste (BR-01). Audit : `scan.rescanned`.'
+      summary: Relancer un scan (US36)
+      parameters:
+      - in: path
+        name: public_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - review
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RescanCreated'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RescanCreated'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RescanCreated'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RescanCreated'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: Quota quotidien de l'analyste atteint (BR-01) + Retry-After.
+  /api/review/queue/:
+    get:
+      operationId: review_queue_list
+      description: 'Scans en `under_review`, du plus ancien au plus récent par défaut.
+        Filtres : `source` (uncertain = verdict incertain, reported = signalé par
+        un utilisateur), `verdict`, `created_after`, `created_before` (une date seule
+        `YYYY-MM-DD` couvre le jour entier local). `ordering` : `created_at` (défaut,
+        du plus ancien au plus récent) ou `uncertainty` (croissant = le score le plus
+        proche d''un seuil de décision d''abord). Chaque ligne porte `reported` et
+        `claimed_label`. Pagination identique à l''historique.'
+      summary: File de revue des analysts (US33)
+      parameters:
+      - in: query
+        name: created_after
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: created_before
+        schema:
+          type: string
+          format: date-time
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: source
+        schema:
+          type: string
+          enum:
+          - reported
+          - uncertain
+        description: |-
+          * `uncertain` - Uncertain
+          * `reported` - Reported
+      - in: query
+        name: verdict
+        schema:
+          type: string
+          nullable: true
+          enum:
+          - legitimate
+          - phishing
+          - uncertain
+        description: |-
+          * `phishing` - Phishing
+          * `legitimate` - Legitimate
+          * `uncertain` - Uncertain
+      tags:
+      - review
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedReviewQueueItemList'
+          description: ''
+  /api/scans/:
+    get:
+      operationId: scans_list
+      description: 'Uniquement mes scans, du plus récent au plus ancien, paginé. Filtres
+        (US29) : `q` (sous-chaîne de l''URL ou du domaine, littérale), `verdict`,
+        `status`, `created_after` et `created_before` (ISO 8601, bornes inclusives),
+        combinés par ET. Une date seule `YYYY-MM-DD` couvre le jour entier dans le
+        fuseau de `TIME_ZONE` (les deux jours bornes sont donc inclusifs). Tri : `ordering`
+        limité à created_at, finished_at, status, verdict, score (un « - » pour le
+        décroissant) ; toute autre valeur retombe sur le tri par défaut. Une valeur
+        de filtre invalide renvoie 400 avant toute requête SQL.'
+      summary: Lister mes scans (US16 / US29)
+      parameters:
+      - in: query
+        name: created_after
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: created_before
+        schema:
+          type: string
+          format: date-time
+      - in: query
+        name: ordering
+        schema:
+          type: string
+          enum:
+          - -created_at
+          - -finished_at
+          - -score
+          - -status
+          - -verdict
+          - created_at
+          - finished_at
+          - score
+          - status
+          - verdict
+        description: 'Tri de l''historique : l''un des champs autorisés (created_at,
+          finished_at, status, verdict, score), précédé d''un « - » pour l''ordre
+          décroissant. Une valeur hors liste retombe sur le tri par défaut (-created_at,
+          -id).'
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: q
+        schema:
+          type: string
+      - in: query
+        name: status
+        schema:
+          type: string
+          enum:
+          - analyzing
+          - blocked
+          - confirmed
+          - detected
+          - failed
+          - false_positive
+          - submitted
+          - under_review
+        description: |-
+          * `submitted` - Submitted
+          * `analyzing` - Analyzing
+          * `detected` - Detected
+          * `under_review` - Under Review
+          * `confirmed` - Confirmed
+          * `false_positive` - False Positive
+          * `blocked` - Blocked
+          * `failed` - Failed
+      - in: query
+        name: verdict
+        schema:
+          type: string
+          nullable: true
+          enum:
+          - legitimate
+          - phishing
+          - uncertain
+        description: |-
+          * `phishing` - Phishing
+          * `legitimate` - Legitimate
+          * `uncertain` - Uncertain
+      tags:
+      - scans
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedScanList'
+          description: ''
+    post:
+      operationId: scans_create
+      description: 'Valide l''URL (BR-07), applique le quota quotidien (BR-01), crée
+        le scan en mode full et le file d''attente Celery (US15). Le corps ne peut
+        contenir que `url` : mode, statut, verdict, score et propriétaire sont décidés
+        par le serveur.'
+      summary: Soumettre une URL (US12)
+      tags:
+      - scans
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScanCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ScanCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ScanCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanCreated'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanError'
+          description: ''
+        '429':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuotaExceeded'
+          description: ''
+  /api/scans/{public_id}/:
+    get:
+      operationId: scans_retrieve
+      description: Identifié par l'UUID public (`id` de la réponse), jamais par la
+        clé entière interne.
+      summary: Détail d'un scan (US16)
+      parameters:
+      - in: path
+        name: public_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - scans
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Scan'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: Scan introuvable ou non visible par ce compte (404 volontaire,
+            jamais 403).
+  /api/scans/{public_id}/report/:
+    post:
+      operationId: scans_report_create
+      description: 'Réservé au propriétaire du scan, qui doit être en `detected` ou
+        `under_review` et sans signalement (BR-05 : un seul par scan, sinon 409).
+        Un scan `detected` passe en `under_review` via le graphe BR-04. Le commentaire
+        et le label revendiqués sont enregistrés ; une entrée `report.created` est
+        écrite dans le journal d''audit.'
+      summary: Signaler un verdict faux (US31)
+      parameters:
+      - in: path
+        name: public_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - scans
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ReportCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ReportCreate'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Report'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanError'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: Scan introuvable ou non possédé par ce compte (404).
+        '409':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: 'Conflit (409) : `code` = `already_reported` (BR-05), `not_reportable`
+            (statut du scan) ou `not_decidable` (BR-04).'
+  /api/scans/quota/:
+    get:
+      operationId: scans_quota_retrieve
+      description: 'Limites du jour : combien de scans restent disponibles.'
+      summary: Mon quota de scans (US14)
+      tags:
+      - scans
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Quota'
+          description: ''
+  /api/schema/:
+    get:
+      operationId: schema_retrieve
+      description: |-
+        OpenApi3 schema for this API. Format can be selected via content negotiation.
+
+        - YAML: application/vnd.oai.openapi
+        - JSON: application/vnd.oai.openapi+json
+      parameters:
+      - in: query
+        name: format
+        schema:
+          type: string
+          enum:
+          - json
+          - yaml
+      - in: query
+        name: lang
+        schema:
+          type: string
+          enum:
+          - af
+          - ar
+          - ar-dz
+          - ast
+          - az
+          - be
+          - bg
+          - bn
+          - br
+          - bs
+          - ca
+          - ckb
+          - cs
+          - cy
+          - da
+          - de
+          - dsb
+          - el
+          - en
+          - en-au
+          - en-gb
+          - eo
+          - es
+          - es-ar
+          - es-co
+          - es-mx
+          - es-ni
+          - es-ve
+          - et
+          - eu
+          - fa
+          - fi
+          - fr
+          - fy
+          - ga
+          - gd
+          - gl
+          - he
+          - hi
+          - hr
+          - hsb
+          - ht
+          - hu
+          - hy
+          - ia
+          - id
+          - ig
+          - io
+          - is
+          - it
+          - ja
+          - ka
+          - kab
+          - kk
+          - km
+          - kn
+          - ko
+          - ky
+          - lb
+          - lt
+          - lv
+          - mk
+          - ml
+          - mn
+          - mr
+          - ms
+          - my
+          - nb
+          - ne
+          - nl
+          - nn
+          - os
+          - pa
+          - pl
+          - pt
+          - pt-br
+          - ro
+          - ru
+          - sk
+          - sl
+          - sq
+          - sr
+          - sr-latn
+          - sv
+          - sw
+          - ta
+          - te
+          - tg
+          - th
+          - tk
+          - tr
+          - tt
+          - udm
+          - ug
+          - uk
+          - ur
+          - uz
+          - vi
+          - zh-hans
+          - zh-hant
+      tags:
+      - schema
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/vnd.oai.openapi:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/yaml:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/vnd.oai.openapi+json:
+              schema:
+                type: object
+                additionalProperties: {}
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+components:
+  schemas:
+    ActionEnum:
+      enum:
+      - register
+      - login_success
+      - login_failed
+      - role_change
+      - user_suspend
+      - user_reactivate
+      - decision
+      - blocklist_add
+      - blocklist_remove
+      - model_update
+      - scan_created
+      - scan_status_changed
+      - quick_check.created
+      - report.created
+      - scan.decided
+      - note.added
+      - scan.rescanned
+      - blocklist.added
+      - blocklist.removed
+      - blocklist.exported
+      type: string
+      description: |-
+        * `register` - Inscription
+        * `login_success` - Connexion réussie
+        * `login_failed` - Connexion échouée
+        * `role_change` - Changement de rôle
+        * `user_suspend` - Suspension d'un compte
+        * `user_reactivate` - Réactivation d'un compte
+        * `decision` - Décision
+        * `blocklist_add` - Ajout à la blocklist
+        * `blocklist_remove` - Retrait de la blocklist
+        * `model_update` - Modèle
+        * `scan_created` - Création d'un scan
+        * `scan_status_changed` - Changement de statut d'un scan
+        * `quick_check.created` - Quick check anonyme
+        * `report.created` - Signalement d'un verdict
+        * `scan.decided` - Décision d'un analyste
+        * `note.added` - Note interne d'un analyste
+        * `scan.rescanned` - Nouveau scan relancé par un analyste
+        * `blocklist.added` - Ajout à la blocklist
+        * `blocklist.removed` - Retrait de la blocklist
+        * `blocklist.exported` - Export de la blocklist
+    AdminUser:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        email:
+          type: string
+          format: email
+          readOnly: true
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        role:
+          $ref: '#/components/schemas/RoleEnum'
+        is_active:
+          type: boolean
+          title: Active
+          description: Designates whether this user should be treated as active. Unselect
+            this instead of deleting accounts.
+        date_joined:
+          type: string
+          format: date-time
+          readOnly: true
+        last_login:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - date_joined
+      - email
+      - id
+      - last_login
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        user:
+          type: integer
+          readOnly: true
+          nullable: true
+        user_email:
+          type: string
+          readOnly: true
+        action:
+          allOf:
+          - $ref: '#/components/schemas/ActionEnum'
+          readOnly: true
+        action_label:
+          type: string
+          readOnly: true
+        target_type:
+          type: string
+          readOnly: true
+        target_id:
+          type: string
+          readOnly: true
+        target_repr:
+          type: string
+          readOnly: true
+        ip_address:
+          type: string
+          readOnly: true
+          nullable: true
+        metadata:
+          readOnly: true
+      required:
+      - action
+      - action_label
+      - created_at
+      - id
+      - ip_address
+      - metadata
+      - target_id
+      - target_repr
+      - target_type
+      - user
+      - user_email
+    BlocklistCreate:
+      type: object
+      description: 'POST /api/blocklist/ body: domain + reason (+ optional note /
+        source_scan).'
+      properties:
+        domain:
+          type: string
+          maxLength: 254
+        reason:
+          $ref: '#/components/schemas/ReasonEnum'
+        note:
+          type: string
+          maxLength: 1000
+        source_scan:
+          type: string
+          format: uuid
+          nullable: true
+      required:
+      - domain
+      - reason
+    BlocklistEntry:
+      type: object
+      description: Read-only projection of one blocklist entry (id = public UUID).
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        domain:
+          type: string
+          readOnly: true
+        reason:
+          allOf:
+          - $ref: '#/components/schemas/ReasonEnum'
+          readOnly: true
+        note:
+          type: string
+          readOnly: true
+        added_by_email:
+          type: string
+          format: email
+          readOnly: true
+        source_scan:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        is_active:
+          type: boolean
+          readOnly: true
+          title: Active
+        removed_by_email:
+          type: string
+          format: email
+          readOnly: true
+        removed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        removal_reason:
+          type: string
+          readOnly: true
+      required:
+      - added_by_email
+      - created_at
+      - domain
+      - id
+      - is_active
+      - note
+      - reason
+      - removal_reason
+      - removed_at
+      - removed_by_email
+      - source_scan
+    BlocklistError:
+      type: object
+      description: '400/409 body: machine-readable `code` + human `detail` (schema
+        only).'
+      properties:
+        code:
+          type: string
+        detail:
+          type: string
+      required:
+      - code
+      - detail
+    ClaimedLabelEnum:
+      enum:
+      - safe
+      - phishing
+      type: string
+      description: |-
+        * `safe` - Légitime
+        * `phishing` - Phishing
+    Decision:
+      type: object
+      description: POST /api/review/{uuid}/decision/ body (US34 / US38-US41).
+      properties:
+        decision:
+          $ref: '#/components/schemas/DecisionEnum'
+        comment:
+          type: string
+          maxLength: 1000
+        add_to_blocklist:
+          type: boolean
+          default: false
+      required:
+      - decision
+    DecisionEnum:
+      enum:
+      - confirm_phishing
+      - false_positive
+      type: string
+      description: |-
+        * `confirm_phishing` - Confirmer le phishing
+        * `false_positive` - Faux positif
+    DetectionSourceEnum:
+      enum:
+      - model
+      - blocklist
+      type: string
+      description: |-
+        * `model` - Model
+        * `blocklist` - Blocklist
+    KindEnum:
+      enum:
+      - report_decision
+      type: string
+      description: '* `report_decision` - Décision sur un signalement'
+    ModeEnum:
+      enum:
+      - fast
+      - full
+      type: string
+      description: |-
+        * `fast` - Fast
+        * `full` - Full
+    Note:
+      type: object
+      description: Read-only projection of an internal note (analyst-only endpoints).
+      properties:
+        author_email:
+          type: string
+          format: email
+          readOnly: true
+        text:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - author_email
+      - created_at
+      - text
+    NoteCreate:
+      type: object
+      description: POST /api/review/{uuid}/notes/ body (US35).
+      properties:
+        text:
+          type: string
+          maxLength: 2000
+      required:
+      - text
+    Notification:
+      type: object
+      description: GET /api/notifications/ item (US57). Id is the public UUID.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        kind:
+          allOf:
+          - $ref: '#/components/schemas/KindEnum'
+          readOnly: true
+        scan:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+        message:
+          type: string
+          readOnly: true
+        read_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - kind
+      - message
+      - read_at
+      - scan
+    NullEnum:
+      enum:
+      - null
+    PaginatedAuditLogList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditLog'
+    PaginatedBlocklistEntryList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/BlocklistEntry'
+    PaginatedNotificationList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Notification'
+    PaginatedProtectedBrandList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProtectedBrand'
+    PaginatedReviewQueueItemList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReviewQueueItem'
+    PaginatedScanList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Scan'
+    PatchedAdminUser:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        email:
+          type: string
+          format: email
+          readOnly: true
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        role:
+          $ref: '#/components/schemas/RoleEnum'
+        is_active:
+          type: boolean
+          title: Active
+          description: Designates whether this user should be treated as active. Unselect
+            this instead of deleting accounts.
+        date_joined:
+          type: string
+          format: date-time
+          readOnly: true
+        last_login:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+    PatchedProtectedBrandPatch:
+      type: object
+      description: 'PATCH /api/brands/{uuid}/ body: every field optional.'
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        domain:
+          type: string
+          maxLength: 254
+        is_active:
+          type: boolean
+    PatchedUser:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        email:
+          type: string
+          format: email
+          readOnly: true
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        role:
+          allOf:
+          - $ref: '#/components/schemas/RoleEnum'
+          readOnly: true
+        date_joined:
+          type: string
+          format: date-time
+          readOnly: true
+    ProtectedBrand:
+      type: object
+      description: Read-only projection of a protected brand (id = public UUID).
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+        domain:
+          type: string
+          readOnly: true
+        is_active:
+          type: boolean
+          readOnly: true
+          title: Active
+        created_by_email:
+          type: string
+          format: email
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - created_by_email
+      - domain
+      - id
+      - is_active
+      - name
+    ProtectedBrandCreate:
+      type: object
+      description: 'POST /api/brands/ body: name + domain (+ optional is_active).'
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        domain:
+          type: string
+          maxLength: 254
+        is_active:
+          type: boolean
+          default: true
+      required:
+      - domain
+      - name
+    QuickCheck:
+      type: object
+      description: 'Step 9 - POST /api/quick-check/ body: {"url": "..."} and nothing
+        else.'
+      properties:
+        url:
+          type: string
+      required:
+      - url
+    QuickCheckCreated:
+      type: object
+      description: 'Step 9 - 202 body: the anonymous scan reference, no other field.'
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          maxLength: 20
+      required:
+      - id
+      - status
+    QuickCheckRate:
+      type: object
+      description: Step 9 - 429 body (BR-02) + the Retry-After header.
+      properties:
+        detail:
+          type: string
+        limit:
+          type: integer
+      required:
+      - detail
+      - limit
+    QuickCheckResult:
+      type: object
+      description: |-
+        Step 9 - 200 body of GET /api/quick-check/{uuid}/: ONLY these fields.
+
+        The URL, the domain, the mode and the owner are deliberately absent: an
+        anonymous caller gets the verdict of an anonymous scan, nothing more.
+        `detection_source` (Step 11 / US41) tells whether the verdict came from
+        the model or from an immediate blocklist hit.
+      properties:
+        status:
+          allOf:
+          - $ref: '#/components/schemas/ScanStatusEnum'
+          readOnly: true
+        verdict:
+          readOnly: true
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/VerdictEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        score:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+        detection_source:
+          allOf:
+          - $ref: '#/components/schemas/DetectionSourceEnum'
+          readOnly: true
+        finished_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - detection_source
+      - finished_at
+      - score
+      - status
+      - verdict
+    Quota:
+      type: object
+      description: 'Quota snapshot (US14): remaining scans for today.'
+      properties:
+        limit:
+          type: integer
+        used:
+          type: integer
+        remaining:
+          type: integer
+        reset_at:
+          type: string
+          format: date-time
+      required:
+      - limit
+      - remaining
+      - reset_at
+      - used
+    QuotaExceeded:
+      type: object
+      description: 429 body of POST /api/scans/ (BR-01) + the Retry-After header.
+      properties:
+        detail:
+          type: string
+        limit:
+          type: integer
+        used:
+          type: integer
+        reset_at:
+          type: string
+          format: date-time
+      required:
+      - detail
+      - limit
+      - reset_at
+      - used
+    ReasonEnum:
+      enum:
+      - confirmed_phishing
+      - campaign
+      - manual
+      type: string
+      description: |-
+        * `confirmed_phishing` - Confirmed phishing
+        * `campaign` - Campaign
+        * `manual` - Manual
+    Register:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          writeOnly: true
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+      required:
+      - email
+      - password
+    Report:
+      type: object
+      description: Read-only projection of a report (never exposes the integer pk).
+      properties:
+        scan:
+          type: string
+          format: uuid
+          readOnly: true
+        reporter_email:
+          type: string
+          format: email
+          readOnly: true
+        claimed_label:
+          allOf:
+          - $ref: '#/components/schemas/ClaimedLabelEnum'
+          readOnly: true
+        comment:
+          type: string
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/ReportStatusEnum'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - claimed_label
+      - comment
+      - created_at
+      - reporter_email
+      - scan
+      - status
+    ReportCreate:
+      type: object
+      description: POST /api/scans/{uuid}/report/ body (US31).
+      properties:
+        claimed_label:
+          $ref: '#/components/schemas/ClaimedLabelEnum'
+        comment:
+          type: string
+          maxLength: 1000
+      required:
+      - claimed_label
+    ReportStatusEnum:
+      enum:
+      - open
+      - resolved
+      type: string
+      description: |-
+        * `open` - Ouvert
+        * `resolved` - Traité
+    RescanCreated:
+      type: object
+      description: 202 body of POST /api/review/{uuid}/rescan/ (US36).
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          maxLength: 20
+      required:
+      - id
+      - status
+    ReviewDetail:
+      type: object
+      description: |-
+        GET /api/review/{uuid}/ : the scan + its report, notes and decision.
+
+        Analyst-only: the reporter email, the note authors and the reviewing
+        analyst are visible here, and ONLY here (the owner-facing scan detail
+        never contains them).
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        url:
+          type: string
+          format: uri
+          readOnly: true
+        domain:
+          type: string
+          readOnly: true
+        mode:
+          allOf:
+          - $ref: '#/components/schemas/ModeEnum'
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/ScanStatusEnum'
+          readOnly: true
+        verdict:
+          readOnly: true
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/VerdictEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        score:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+        detection_source:
+          allOf:
+          - $ref: '#/components/schemas/DetectionSourceEnum'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        finished_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        owner_email:
+          type: string
+          format: email
+          readOnly: true
+        reported:
+          type: boolean
+          readOnly: true
+        claimed_label:
+          type: string
+          readOnly: true
+          nullable: true
+        reviewed_by_email:
+          type: string
+          format: email
+          readOnly: true
+        reviewed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        review_comment:
+          type: string
+          readOnly: true
+        rescan_of:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+        report:
+          type: object
+          additionalProperties: {}
+          nullable: true
+          readOnly: true
+        notes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Note'
+          readOnly: true
+      required:
+      - claimed_label
+      - created_at
+      - detection_source
+      - domain
+      - finished_at
+      - id
+      - mode
+      - notes
+      - owner_email
+      - report
+      - reported
+      - rescan_of
+      - review_comment
+      - reviewed_at
+      - reviewed_by_email
+      - score
+      - status
+      - url
+      - verdict
+    ReviewQueueItem:
+      type: object
+      description: |-
+        One row of GET /api/review/queue/ (US33).
+
+        `reported` and `claimed_label` come from the subqueries annotated by
+        reviews.services.annotate_report_flags (no query per row).
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        url:
+          type: string
+          format: uri
+          readOnly: true
+        domain:
+          type: string
+          readOnly: true
+        mode:
+          allOf:
+          - $ref: '#/components/schemas/ModeEnum'
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/ScanStatusEnum'
+          readOnly: true
+        verdict:
+          readOnly: true
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/VerdictEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        score:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+        detection_source:
+          allOf:
+          - $ref: '#/components/schemas/DetectionSourceEnum'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        finished_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        owner_email:
+          type: string
+          format: email
+          readOnly: true
+        reported:
+          type: boolean
+          readOnly: true
+        claimed_label:
+          type: string
+          readOnly: true
+          nullable: true
+      required:
+      - claimed_label
+      - created_at
+      - detection_source
+      - domain
+      - finished_at
+      - id
+      - mode
+      - owner_email
+      - reported
+      - score
+      - status
+      - url
+      - verdict
+    RoleEnum:
+      enum:
+      - admin
+      - analyst
+      - end_user
+      type: string
+      description: |-
+        * `admin` - Administrateur
+        * `analyst` - Analyste
+        * `end_user` - Utilisateur
+    Scan:
+      type: object
+      description: |-
+        Read-only projection of a scan (list and detail).
+
+        Step 8a: `id` is the public UUID (`public_id`), never the sequential
+        integer primary key, which stays internal (ISO-6.6 anti-enumeration).
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        url:
+          type: string
+          format: uri
+          readOnly: true
+        domain:
+          type: string
+          readOnly: true
+        mode:
+          allOf:
+          - $ref: '#/components/schemas/ModeEnum'
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/ScanStatusEnum'
+          readOnly: true
+        verdict:
+          readOnly: true
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/VerdictEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        score:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+        detection_source:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        finished_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        has_report:
+          type: boolean
+          readOnly: true
+          default: false
+        report_status:
+          type: string
+          readOnly: true
+          nullable: true
+        reviewed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - created_at
+      - detection_source
+      - domain
+      - finished_at
+      - has_report
+      - id
+      - mode
+      - report_status
+      - reviewed_at
+      - score
+      - status
+      - url
+      - verdict
+    ScanCreate:
+      type: object
+      description: 'POST /api/scans/ body: {"url": "..."} and nothing else.'
+      properties:
+        url:
+          type: string
+      required:
+      - url
+    ScanCreated:
+      type: object
+      description: |-
+        202 body of POST /api/scans/: the created scan + the quota after it.
+
+        Step 8a: `id` is the public UUID, matching the detail URL /api/scans/<uuid>/.
+        Step 11: `detection_source` distinguishes a model verdict from an immediate
+        blocklist hit (US41).
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+          maxLength: 2048
+        status:
+          type: string
+          maxLength: 20
+        detection_source:
+          type: string
+          maxLength: 10
+        created_at:
+          type: string
+          format: date-time
+        quota:
+          $ref: '#/components/schemas/Quota'
+      required:
+      - created_at
+      - detection_source
+      - id
+      - quota
+      - status
+      - url
+    ScanError:
+      type: object
+      description: |-
+        400 body: machine-readable `code` (RejectionCode) + human `detail`.
+
+        Schema-only: the view builds this dictionary by hand, the serializer is
+        never instantiated (the optional `errors` payload is a free-form dict).
+      properties:
+        code:
+          type: string
+        detail:
+          type: string
+        errors:
+          type: object
+          additionalProperties: {}
+      required:
+      - code
+      - detail
+    ScanStatusEnum:
+      enum:
+      - submitted
+      - analyzing
+      - detected
+      - under_review
+      - confirmed
+      - false_positive
+      - blocked
+      - failed
+      type: string
+      description: |-
+        * `submitted` - Submitted
+        * `analyzing` - Analyzing
+        * `detected` - Detected
+        * `under_review` - Under Review
+        * `confirmed` - Confirmed
+        * `false_positive` - False Positive
+        * `blocked` - Blocked
+        * `failed` - Failed
+    TokenObtainPair:
+      type: object
+      properties:
+        email:
+          type: string
+          writeOnly: true
+        password:
+          type: string
+          writeOnly: true
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+          readOnly: true
+      required:
+      - access
+      - email
+      - password
+      - refresh
+    TokenRefresh:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+      required:
+      - access
+      - refresh
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        email:
+          type: string
+          format: email
+          readOnly: true
+        first_name:
+          type: string
+          maxLength: 150
+        last_name:
+          type: string
+          maxLength: 150
+        role:
+          allOf:
+          - $ref: '#/components/schemas/RoleEnum'
+          readOnly: true
+        date_joined:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - date_joined
+      - email
+      - id
+      - role
+    VerdictEnum:
+      enum:
+      - phishing
+      - legitimate
+      - uncertain
+      type: string
+      description: |-
+        * `phishing` - Phishing
+        * `legitimate` - Legitimate
+        * `uncertain` - Uncertain
+  securitySchemes:
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

@@ -177,7 +177,13 @@ def test_the_detail_exposes_only_status_verdict_score_and_finished_at(api_client
     detail = api_client.get(reverse(QUICK_CHECK_DETAIL, args=[resp.data["id"]]))
 
     assert detail.status_code == http_status.HTTP_200_OK
-    assert set(detail.data) == {"status", "verdict", "score", "finished_at"}
+    assert set(detail.data) == {
+        "status",
+        "verdict",
+        "score",
+        "detection_source",
+        "finished_at",
+    }
     assert "url" not in detail.data and "id" not in detail.data
     assert detail.data["status"] == Scan.Status.SUBMITTED
 

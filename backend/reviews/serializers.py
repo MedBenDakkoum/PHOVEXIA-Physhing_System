@@ -62,7 +62,7 @@ class NoteSerializer(serializers.ModelSerializer):
 
 
 class DecisionSerializer(serializers.Serializer):
-    """POST /api/review/{uuid}/decision/ body (US34)."""
+    """POST /api/review/{uuid}/decision/ body (US34 / US38-US41)."""
 
     decision = serializers.ChoiceField(
         choices=[
@@ -71,6 +71,15 @@ class DecisionSerializer(serializers.Serializer):
         ]
     )
     comment = serializers.CharField(required=False, allow_blank=True, max_length=1000)
+    # Step 11 (US38): only valid with confirm_phishing (checked in validate()).
+    add_to_blocklist = serializers.BooleanField(required=False, default=False)
+
+    def validate(self, attrs):
+        if attrs.get("add_to_blocklist") and attrs.get("decision") != DECISION_CONFIRM_PHISHING:
+            raise serializers.ValidationError(
+                "add_to_blocklist n'est possible qu'avec confirm_phishing."
+            )
+        return attrs
 
 
 class ReviewQueueItemSerializer(serializers.ModelSerializer):
@@ -97,6 +106,7 @@ class ReviewQueueItemSerializer(serializers.ModelSerializer):
             "status",
             "verdict",
             "score",
+            "detection_source",
             "created_at",
             "finished_at",
             "owner_email",

@@ -12,7 +12,13 @@ class Scan(models.Model):
     class Mode(models.TextChoices):
         FAST = "fast"
         FULL = "full"
-    
+
+    # Step 11 (US41): where the verdict came from. BLOCKLIST = the domain was
+    # already actively blocked, so no model ran and no task was queued.
+    class DetectionSource(models.TextChoices):
+        MODEL = "model", "Model"
+        BLOCKLIST = "blocklist", "Blocklist"
+
     # Statuses: Submitted -> Analyzing -> Detected/Failed -> Under Review/False Positive -> Confirmed/Blocked
     class Status(models.TextChoices):
         SUBMITTED = "submitted"
@@ -54,6 +60,12 @@ class Scan(models.Model):
         ], null=True, blank=True
     )
     score = models.FloatField("Score", null=True, blank=True)
+    detection_source = models.CharField(
+        "Detection source",
+        max_length=10,
+        choices=DetectionSource.choices,
+        default=DetectionSource.MODEL,
+    )
     error_message = models.TextField("Error message", null=True, blank=True)
     # Step 10 (US34 / BR-04): human review outcome. Owner-facing data never
     # includes the analyst identity, only the decision itself (ISO-6.6).

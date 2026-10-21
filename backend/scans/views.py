@@ -247,18 +247,28 @@ class ScanListCreateView(generics.ListCreateAPIView):
         url = input_serializer.validated_data["url"]
 
         try:
-            # ONE transaction: validate -> quota (row lock) -> create -> audit
-            # -> enqueue. Any refusal rolls the whole block back, so a refused
-            # request never creates a scan and never consumes quota.
+            # ONE transaction: validate -> quota (row lock) -> blocklist (US41)
+            # -> create -> audit -> enqueue (or immediate verdict). Any refusal
+            # rolls the whole block back, so a refused request never creates a
+            # scan and never consumes quota.
             with transaction.atomic():
                 validated = validate_url(url)
                 check_quota(user)
+                # US41: domain or parent domain already actively blocked?
+                from blocklist.services import apply_blocked_verdict, is_blocked
+
+                blocked = is_blocked(validated.host)
                 scan = Scan.objects.create(
                     owner=user,
                     url=validated.url,
                     domain=validated.host,
                     mode=Scan.Mode.FULL,
                     status=Scan.Status.SUBMITTED,
+                    detection_source=(
+                        Scan.DetectionSource.BLOCKLIST
+                        if blocked is not None
+                        else Scan.DetectionSource.MODEL
+                    ),
                 )
                 record(
                     AuditLog.Action.SCAN_CREATED,
@@ -266,7 +276,11 @@ class ScanListCreateView(generics.ListCreateAPIView):
                     target=scan,
                     metadata={"domain": scan.domain},
                 )
-                enqueue_scan(scan)
+                if blocked is not None:
+                    # Immediate verdict, no Celery task (quota still counts).
+                    apply_blocked_verdict(scan)
+                else:
+                    enqueue_scan(scan)
                 quota = get_quota_status(user)
         except InvalidURL as exc:
             return Response(_url_error(exc), status=status.HTTP_400_BAD_REQUEST)
@@ -277,6 +291,7 @@ class ScanListCreateView(generics.ListCreateAPIView):
             "id": scan.public_id,
             "url": scan.url,
             "status": scan.status,
+            "detection_source": scan.detection_source,
             "created_at": scan.created_at,
             "quota": {
                 "limit": quota.limit,
@@ -398,12 +413,21 @@ class QuickCheckView(generics.GenericAPIView):
         try:
             with transaction.atomic():
                 validated = validate_url(url)
+                # US41: an actively blocked domain gets the immediate verdict.
+                from blocklist.services import apply_blocked_verdict, is_blocked
+
+                blocked = is_blocked(validated.host)
                 scan = Scan.objects.create(
                     owner=None,
                     url=validated.url,
                     domain=validated.host,
                     mode=Scan.Mode.FAST,
                     status=Scan.Status.SUBMITTED,
+                    detection_source=(
+                        Scan.DetectionSource.BLOCKLIST
+                        if blocked is not None
+                        else Scan.DetectionSource.MODEL
+                    ),
                 )
                 # Domain + IP only: record() stores target_repr built from
                 # `domain`, never the URL and its query string.
@@ -413,7 +437,10 @@ class QuickCheckView(generics.GenericAPIView):
                     target=scan,
                     metadata={"domain": scan.domain},
                 )
-                enqueue_scan(scan)
+                if blocked is not None:
+                    apply_blocked_verdict(scan)
+                else:
+                    enqueue_scan(scan)
         except InvalidURL as exc:
             return Response(_url_error(exc), status=status.HTTP_400_BAD_REQUEST)
 

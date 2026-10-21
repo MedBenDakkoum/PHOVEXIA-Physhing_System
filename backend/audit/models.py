@@ -42,6 +42,11 @@ class AuditLog(models.Model):
         SCAN_DECIDED = "scan.decided", "Décision d'un analyste"
         NOTE_ADDED = "note.added", "Note interne d'un analyste"
         SCAN_RESCANNED = "scan.rescanned", "Nouveau scan relancé par un analyste"
+        # Blocklist (US38-US41): dotted namespace, domain only in metadata,
+        # never a full URL. Migration 0006.
+        BLOCKLIST_ADDED = "blocklist.added", "Ajout à la blocklist"
+        BLOCKLIST_REMOVED = "blocklist.removed", "Retrait de la blocklist"
+        BLOCKLIST_EXPORTED = "blocklist.exported", "Export de la blocklist"
 
     # Qui : FK (filtrage) + copie de l'email (conservée même si le compte disparaît,
     # et utilisable pour une tentative de connexion sur un email inconnu).
