@@ -109,12 +109,22 @@ def report_scan(
 
 
 def submit_decision(
-    *, scan: Scan, analyst, decision: str, comment: str = "", request=None
+    *,
+    scan: Scan,
+    analyst,
+    decision: str,
+    comment: str = "",
+    add_to_blocklist: bool = False,
+    request=None,
 ) -> Scan:
     """US34 - confirm the phishing or declare a false positive (BR-04).
 
     Only from UNDER_REVIEW. Sets reviewed_by / reviewed_at / review_comment,
     resolves the open report if any and notifies its reporter (US57).
+    Step 11 (US38/US41): `add_to_blocklist=True` (only with confirm_phishing)
+    adds the domain to the blocklist in the SAME transaction and moves the
+    scan CONFIRMED -> BLOCKED through the BR-04 graph. An already-blocked
+    domain is ignored silently (BR-03 still holds).
     """
     target_status = DECISION_TARGET[decision]
     with transaction.atomic():
@@ -159,6 +169,21 @@ def submit_decision(
                 scan=locked,
                 message=_decision_message(locked, decision),
             )
+        # Step 11 (US38/US41): same transaction, only with confirm_phishing.
+        if add_to_blocklist and decision == DECISION_CONFIRM_PHISHING:
+            from blocklist.models import BlocklistEntry
+            from blocklist.services import add_entry
+
+            # BR-03: already blocked -> entry is None, ignore silently.
+            add_entry(
+                domain=locked.domain,
+                reason=BlocklistEntry.Reason.CONFIRMED_PHISHING,
+                added_by=analyst,
+                source_scan=locked,
+                request=request,
+            )
+            # The scan still moves to BLOCKED (the domain is blocked either way).
+            change_status(locked, Scan.Status.BLOCKED, actor=analyst)
     return locked
 
 
@@ -190,11 +215,16 @@ def rescan_scan(*, scan: Scan, analyst, request=None) -> Scan:
     The URL is re-validated with the BR-07 rules (it may have been harmless
     when first seen and private now, or the validator may have improved), the
     new scan is counted in the ANALYST's daily quota (BR-01) and linked to
-    the original through `rescan_of`.
+    the original through `rescan_of`. Step 11 (US41): an actively blocked
+    domain gets the immediate BLOCKLIST verdict and is NOT queued.
     """
     with transaction.atomic():
         validated = validate_url(scan.url)
         check_quota(analyst)
+        # US41: blocklist check after validate_url, before create/enqueue.
+        from blocklist.services import apply_blocked_verdict, is_blocked
+
+        blocked = is_blocked(validated.host)
         new_scan = Scan.objects.create(
             owner=analyst,
             url=validated.url,
@@ -202,6 +232,11 @@ def rescan_scan(*, scan: Scan, analyst, request=None) -> Scan:
             mode=Scan.Mode.FULL,
             status=Scan.Status.SUBMITTED,
             rescan_of=scan,
+            detection_source=(
+                Scan.DetectionSource.BLOCKLIST
+                if blocked is not None
+                else Scan.DetectionSource.MODEL
+            ),
         )
         record(
             AuditLog.Action.SCAN_RESCANNED,
@@ -210,7 +245,10 @@ def rescan_scan(*, scan: Scan, analyst, request=None) -> Scan:
             target=new_scan,
             metadata={"rescan_of": str(scan.public_id)},
         )
-        enqueue_scan(new_scan)
+        if blocked is not None:
+            apply_blocked_verdict(new_scan)
+        else:
+            enqueue_scan(new_scan)
     return new_scan
 
 

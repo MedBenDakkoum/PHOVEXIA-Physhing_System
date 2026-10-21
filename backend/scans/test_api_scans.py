@@ -118,10 +118,11 @@ def test_post_returns_202_with_scan_and_quota(auth_client, viewer):
     resp = auth_client.post(reverse(SCAN_LIST), {"url": VALID_URL}, format="json")
 
     assert resp.status_code == http_status.HTTP_202_ACCEPTED
-    assert set(resp.data) == {"id", "url", "status", "created_at", "quota"}
+    assert set(resp.data) == {"id", "url", "status", "detection_source", "created_at", "quota"}
     assert set(resp.data["quota"]) == {"limit", "used", "remaining", "reset_at"}
     assert resp.data["url"] == VALID_URL
     assert resp.data["status"] == Scan.Status.SUBMITTED
+    assert resp.data["detection_source"] == Scan.DetectionSource.MODEL
     assert resp.data["quota"]["limit"] == settings.SCAN_DAILY_QUOTA
     assert resp.data["quota"]["used"] == 1
     assert resp.data["quota"]["remaining"] == settings.SCAN_DAILY_QUOTA - 1
@@ -451,6 +452,8 @@ def test_list_item_fields_are_read_only_projection(auth_client, viewer):
         "status",
         "verdict",
         "score",
+        # Step 11 (US41): model vs blocklist.
+        "detection_source",
         "created_at",
         "finished_at",
         # Step 10 (US31/US34): owner-facing review flags, never the analyst.
@@ -500,6 +503,8 @@ def test_detail_owner_can_read_his_scan(auth_client, viewer):
         "status",
         "verdict",
         "score",
+        # Step 11 (US41): model vs blocklist.
+        "detection_source",
         "created_at",
         "finished_at",
         # Step 10 (US31/US34): owner-facing review flags, never the analyst.

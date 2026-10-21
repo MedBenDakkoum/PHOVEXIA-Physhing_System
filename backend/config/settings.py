@@ -216,6 +216,8 @@ INSTALLED_APPS = [
     # Step 10: human review workflow (Report / AnalystNote / Notification).
     # After 'scans' (string FK references: no load-order constraint).
     'reviews',
+    # Step 11: blocklist and protected brands (US38-US41, US55).
+    'blocklist',
 ]
 
 MIDDLEWARE = [
