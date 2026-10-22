@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 
 from django.contrib.auth import get_user_model
 from django.utils import timezone
@@ -14,16 +15,35 @@ User = get_user_model()
 
 @dataclass(frozen=True)
 class Transition:
-    """Immutable transition rule: from_status -> (allowed_to_statuses, audit_action_label)."""
+    """Immutable transition rule: from_status -> allowed_to_statuses.
+
+    `audit_label` is the label written in the audit entry for every
+    destination; `audit_labels` overrides it for specific destinations
+    (one `from` status can have several moves with different meanings).
+    """
     from_status: str
     allowed_to: tuple[str, ...]
     audit_label: str
+    audit_labels: Mapping[str, str] = field(default_factory=dict)
+
+    def label_for(self, to_status: str) -> str:
+        return self.audit_labels.get(to_status, self.audit_label)
 
 
-# Fixed transition graph per BR-04: Submitted→Analyzing; Analyzing→Detected|Failed;
+# Fixed transition graph per BR-04: Submitted→Analyzing|Failed; Analyzing→Detected|Failed;
 # Detected→Under Review; Under Review→Confirmed|False Positive; Confirmed→Blocked; Failed→Submitted
+#
+# Step 15 (ISO-6.5): Submitted→Failed was ADDED to the graph. A scan whose
+# task never started (queue timeout) cannot stay SUBMITTED forever, and the
+# reaper must write that move through change_status like every other one, so
+# the graph has to allow it (audit label "queue_timeout").
 TRANSITIONS: tuple[Transition, ...] = (
-    Transition(from_status=Scan.Status.SUBMITTED, allowed_to=(Scan.Status.ANALYZING,), audit_label="scan_started"),
+    Transition(
+        from_status=Scan.Status.SUBMITTED,
+        allowed_to=(Scan.Status.ANALYZING, Scan.Status.FAILED),
+        audit_label="scan_started",
+        audit_labels={Scan.Status.FAILED: "queue_timeout"},
+    ),
     Transition(from_status=Scan.Status.ANALYZING, allowed_to=(Scan.Status.DETECTED, Scan.Status.FAILED), audit_label="analysis_complete"),
     Transition(from_status=Scan.Status.DETECTED, allowed_to=(Scan.Status.UNDER_REVIEW,), audit_label="detected_under_review"),
     Transition(from_status=Scan.Status.UNDER_REVIEW, allowed_to=(Scan.Status.CONFIRMED, Scan.Status.FALSE_POSITIVE), audit_label="review_decided"),
@@ -82,6 +102,6 @@ def change_status(scan: Scan, new_status: str, actor: User | None) -> Scan:
     scan.save(update_fields=["status", "updated_at", "finished_at"])
 
     # Write audit entry
-    log_status_change(scan, transition.audit_label, actor, old_status, new_status)
+    log_status_change(scan, transition.label_for(new_status), actor, old_status, new_status)
 
     return scan

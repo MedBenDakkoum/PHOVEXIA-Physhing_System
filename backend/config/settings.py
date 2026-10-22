@@ -2,6 +2,7 @@ import logging
 import os
 from pathlib import Path
 
+from celery.schedules import crontab
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
@@ -352,6 +353,12 @@ SCAN_DAILY_QUOTA = _positive_int_env("SCAN_DAILY_QUOTA", 20)
 # Step 12 (US52): fallback while the DetectionSettings table is empty.
 QUICK_CHECK_HOURLY_LIMIT = _positive_int_env("QUICK_CHECK_HOURLY_LIMIT", 5)
 
+# Step 15 (retention / ISO-6.5 privacy): anonymous FAST scans (quick checks,
+# owner NULL) older than this many days are deleted by the daily beat task
+# scans.purge_expired_data. Their audit entries keep the domain only, never
+# the URL (record(metadata={"domain": ...}) in scans/views.py).
+QUICK_CHECK_RETENTION_DAYS = _positive_int_env("QUICK_CHECK_RETENTION_DAYS", 7)
+
 # Detection thresholds (verdict = phishing if score >= upper, legitimate if
 # score <= lower, uncertain in between -> analyst queue). Validated by
 # scans.services.inference.__thresholds(): floats in [0, 1] and lower < upper.
@@ -361,9 +368,12 @@ QUICK_CHECK_HOURLY_LIMIT = _positive_int_env("QUICK_CHECK_HOURLY_LIMIT", 5)
 DETECTION_PHISHING_THRESHOLD = _float_env("DETECTION_PHISHING_THRESHOLD", 0.70)
 DETECTION_UNCERTAIN_LOWER = _float_env("DETECTION_UNCERTAIN_LOWER", 0.40)
 
-# Step 12 (US53): a scan still ANALYZING after this many minutes is reported
-# as "stuck" by GET /api/admin/health/.
-ANALYZING_STUCK_MINUTES = _positive_int_env("ANALYZING_STUCK_MINUTES", 10)
+# Step 12 (US53) / Step 15 (ISO-6.5 reliability): a scan still ANALYZING after
+# this many minutes is (a) reported as "stuck" by GET /api/admin/health/ and
+# (b) moved to FAILED with error_message "timeout" by the beat task
+# scans.reap_stuck_scans. One knob, one concept: the Step 12 name
+# ANALYZING_STUCK_MINUTES was renamed SCAN_STUCK_MINUTES in Step 15.
+SCAN_STUCK_MINUTES = _positive_int_env("SCAN_STUCK_MINUTES", 10)
 
 # Step 12 (US48): directory where model files live (file_path is validated
 # against path traversal inside this directory).
@@ -508,6 +518,24 @@ CELERY_TASK_SOFT_TIME_LIMIT = 60
 CELERY_TASK_TIME_LIMIT = 90
 CELERY_TASK_ALWAYS_EAGER = False
 CELERY_TASK_EAGER_PROPAGATES_EXCEPTIONS = False
+
+# Step 15 (ISO-6.5 reliability): the periodic jobs are DECLARED IN CODE, the
+# thresholds they use come from the environment (SCAN_STUCK_MINUTES,
+# QUICK_CHECK_RETENTION_DAYS). `celery -A config beat` (compose profile
+# `full`) reads this mapping; nothing else schedules these two tasks.
+CELERY_BEAT_SCHEDULE = {
+    # Scans stuck in ANALYZING (worker died) or in SUBMITTED (task never
+    # started) are moved to FAILED, one row lock at a time (skip_locked).
+    "scans-reap-stuck-scans": {
+        "task": "scans.reap_stuck_scans",
+        "schedule": crontab(minute="*/5"),
+    },
+    # Privacy (US-retention): anonymous FAST scans + expired JWT tokens.
+    "scans-purge-expired-data": {
+        "task": "scans.purge_expired_data",
+        "schedule": crontab(hour=3, minute=0),
+    },
+}
 
 # ---------------------------------------------------------------------------
 # Feature: production settings (ISO-6.6 security).

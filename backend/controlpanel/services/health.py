@@ -81,14 +81,18 @@ def check_queue_length() -> dict:
 
 
 def check_stuck_scans() -> dict:
-    """Scans still ANALYZING after settings.ANALYZING_STUCK_MINUTES."""
-    cutoff = timezone.now() - timedelta(minutes=settings.ANALYZING_STUCK_MINUTES)
+    """Scans still ANALYZING after settings.SCAN_STUCK_MINUTES.
+
+    The same knob drives the beat task scans.reap_stuck_scans (Step 15), so
+    the health probe and the reaper always agree on what "stuck" means.
+    """
+    cutoff = timezone.now() - timedelta(minutes=settings.SCAN_STUCK_MINUTES)
     count = Scan.objects.filter(
         status=Scan.Status.ANALYZING, updated_at__lt=cutoff
     ).count()
     return {
         "ok": True,
-        "message": f"{count} stuck for > {settings.ANALYZING_STUCK_MINUTES} min",
+        "message": f"{count} stuck for > {settings.SCAN_STUCK_MINUTES} min",
         "value": count,
     }
 

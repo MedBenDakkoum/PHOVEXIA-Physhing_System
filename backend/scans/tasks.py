@@ -1,4 +1,4 @@
-"""Celery tasks for scans (Step 6). No HTTP endpoint yet - Step 7 adds it.
+"""Celery tasks for scans (Step 6, extended Step 15). No HTTP endpoint yet.
 
 Actor of every audit entry written here is the SYSTEM, represented by
 `actor=None` (AuditLog.user is nullable by design): no human user is
@@ -8,13 +8,23 @@ Idempotence: the scan row is locked (SELECT ... FOR UPDATE) and the task
 only starts if the status is SUBMITTED, so a duplicate delivery changes
 nothing. Only the scan primary key crosses the broker - never a URL or an
 HTML payload.
+
+Step 15 (ISO-6.5 reliability): run_scan uses acks_late + reject_on_worker_lost,
+so a worker killed mid-analysis re-queues the message instead of losing it;
+the same SUBMITTED-only lock makes that redelivery harmless. Two beat tasks
+declared in config.settings.CELERY_BEAT_SCHEDULE move dead scans to FAILED
+(reap_stuck_scans) and delete expired anonymous data (purge_expired_data).
 """
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 
 from celery import shared_task
+from django.conf import settings
+from django.core.management import call_command
 from django.db import transaction
+from django.utils import timezone
 
 from .models import Scan
 from .services.inference import VERDICT_UNCERTAIN, PredictionResult, predict
@@ -23,6 +33,10 @@ from .services.workflows import change_status
 logger = logging.getLogger(__name__)
 
 _ERROR_MAX_LEN = 200
+
+# Written on the scan row when the reaper gives up on it. Never a URL.
+_TIMEOUT_MESSAGE = "timeout"  # task started, worker died or analysis hung
+_QUEUE_TIMEOUT_MESSAGE = "queue_timeout"  # task never started
 
 
 def _sanitize_error(exc: BaseException) -> str:
@@ -108,12 +122,15 @@ def _store_result(scan_id: int, result: PredictionResult) -> str | None:
         return scan.status
 
 
-@shared_task(name="scans.run_scan")
+@shared_task(name="scans.run_scan", acks_late=True, reject_on_worker_lost=True)
 def run_scan(scan_id: int) -> str | None:
     """Analyze one scan: Submitted -> Analyzing -> Detected/Under review/Failed.
 
     Returns the final status, or None when the task skipped the scan
     (unknown id or status no longer SUBMITTED - idempotence).
+    acks_late + reject_on_worker_lost: a worker killed mid-analysis is
+    re-delivered, and the SUBMITTED-only lock makes the second run a no-op
+    instead of a duplicate verdict (ISO-6.5).
     """
     scan = _lock_if_submitted(scan_id)
     if scan is None:
@@ -123,6 +140,103 @@ def run_scan(scan_id: int) -> str | None:
     except Exception as exc:  # noqa: BLE001 - any failure must end as FAILED, never crash the worker
         return Scan.Status.FAILED if _mark_failed(scan_id, exc) else None
     return _store_result(scan_id, result)
+
+
+def _reap_stale(
+    status: str, *, stale_field: str, cutoff, error_message: str
+) -> int:
+    """Move stale `status` scans to FAILED, one row lock at a time.
+
+    select_for_update(skip_locked=True): if another worker (or an analyst)
+    already holds the row, skip it - never block, never fight over a lock.
+    The status is re-checked inside the transaction: a scan that finished in
+    the meantime is left alone.
+    """
+    candidates = list(
+        Scan.objects.filter(status=status, **{f"{stale_field}__lt": cutoff})
+        .order_by("pk")
+        .values_list("pk", flat=True)
+    )
+    reaped = 0
+    for pk in candidates:
+        with transaction.atomic():
+            scan = (
+                Scan.objects.select_for_update(skip_locked=True)
+                .filter(pk=pk, status=status)
+                .first()
+            )
+            if scan is None:
+                continue
+            scan.error_message = error_message
+            scan.save(update_fields=["error_message"])
+            change_status(scan, Scan.Status.FAILED, actor=None)
+            reaped += 1
+    return reaped
+
+
+@shared_task(name="scans.reap_stuck_scans")
+def reap_stuck_scans() -> dict[str, int]:
+    """ISO-6.5: a scan stuck in ANALYZING/SUBMITTED is a dead worker.
+
+    Runs every 5 minutes (CELERY_BEAT_SCHEDULE). ANALYZING uses updated_at
+    (it moved when the task started), SUBMITTED uses created_at (it never
+    moved). Both thresholds share one env knob: SCAN_STUCK_MINUTES. Every
+    move goes through change_status, so the audit trail is complete.
+    """
+    minutes = settings.SCAN_STUCK_MINUTES
+    cutoff = timezone.now() - timedelta(minutes=minutes)
+    timeout = _reap_stale(
+        Scan.Status.ANALYZING,
+        stale_field="updated_at",
+        cutoff=cutoff,
+        error_message=_TIMEOUT_MESSAGE,
+    )
+    queue_timeout = _reap_stale(
+        Scan.Status.SUBMITTED,
+        stale_field="created_at",
+        cutoff=cutoff,
+        error_message=_QUEUE_TIMEOUT_MESSAGE,
+    )
+    if timeout or queue_timeout:
+        logger.warning(
+            "reap_stuck_scans: %d ANALYZING -> FAILED (timeout), "
+            "%d SUBMITTED -> FAILED (queue_timeout), threshold=%d min",
+            timeout,
+            queue_timeout,
+            minutes,
+        )
+    return {"timeout": timeout, "queue_timeout": queue_timeout}
+
+
+@shared_task(name="scans.purge_expired_data")
+def purge_expired_data() -> dict[str, int]:
+    """ISO-6.5 privacy: delete data the retention policy has expired.
+
+    Deletes anonymous FAST scans (quick checks, owner NULL) older than
+    QUICK_CHECK_RETENTION_DAYS and calls flushexpiredtokens for expired JWT
+    OutstandingTokens. Password-reset state lives only in the token blacklist
+    (the reset itself is stateless), so no other table is touched. Audit
+    entries keep the domain, never the URL.
+    """
+    days = settings.QUICK_CHECK_RETENTION_DAYS
+    cutoff = timezone.now() - timedelta(days=days)
+    qs = Scan.objects.filter(
+        owner__isnull=True, mode=Scan.Mode.FAST, created_at__lt=cutoff
+    )
+    scans_deleted, _per_model = qs.delete()
+
+    from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
+
+    expired = OutstandingToken.objects.filter(expires_at__lt=timezone.now()).count()
+    call_command("flushexpiredtokens", verbosity=0)
+
+    logger.info(
+        "purge_expired_data: scans_deleted=%d tokens_flushed=%d retention_days=%d",
+        scans_deleted,
+        expired,
+        days,
+    )
+    return {"scans_deleted": scans_deleted, "tokens_flushed": expired}
 
 
 def enqueue_scan(scan: Scan) -> None:

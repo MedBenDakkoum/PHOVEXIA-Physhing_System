@@ -16,8 +16,10 @@ pytestmark = pytest.mark.django_db
 ALL_STATUSES = tuple(status.value for status in Scan.Status)
 
 # BR-04 oracle: from_status -> allowed to_statuses
+# Step 15: "submitted": ("analyzing", "failed") - the reaper moves a queue
+# timeout through change_status, so the graph must allow that move.
 EXPECTED_GRAPH = {
-    "submitted": ("analyzing",),
+    "submitted": ("analyzing", "failed"),
     "analyzing": ("detected", "failed"),
     "detected": ("under_review",),
     "under_review": ("confirmed", "false_positive"),
@@ -30,6 +32,7 @@ EXPECTED_GRAPH = {
 # BR-04 oracle: audit label expected for each allowed move
 EXPECTED_AUDIT_LABEL = {
     ("submitted", "analyzing"): "scan_started",
+    ("submitted", "failed"): "queue_timeout",
     ("analyzing", "detected"): "analysis_complete",
     ("analyzing", "failed"): "analysis_complete",
     ("detected", "under_review"): "detected_under_review",
