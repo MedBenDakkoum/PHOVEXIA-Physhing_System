@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
 
@@ -34,9 +36,13 @@ class User(AbstractUser):
     username = None
     email = models.EmailField(unique=True)
     role = models.CharField(max_length=10, choices=Role.choices, default=Role.END_USER)
+    # Step 13 (US6/US57): opt-out of NON-security notification emails
+    # (report decisions). Security emails (reset, password changed,
+    # suspension) are always sent, whatever this flag says.
+    email_notifications = models.BooleanField(default=True)
 
     USERNAME_FIELD = "email"
-    REQUIRED_FIELDS = []
+    REQUIRED_FIELDS: ClassVar[list] = []
 
     objects = UserManager()
 

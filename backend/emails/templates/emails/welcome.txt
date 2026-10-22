@@ -1,0 +1,8 @@
+Bonjour {{ first_name }},
+
+Bienvenue sur la plateforme de détection de phishing.
+
+Vous pouvez dès maintenant soumettre un lien suspect depuis votre espace.
+Si vous n'êtes pas à l'origine de cette inscription, ignorez ce message.
+
+L'équipe de la plateforme de détection de phishing

@@ -1,0 +1,5 @@
+Bonjour {{ first_name }},
+
+Votre compte a été réactivé par un administrateur. Vous pouvez de nouveau vous connecter.
+
+L'équipe de la plateforme de détection de phishing

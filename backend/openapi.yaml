@@ -457,6 +457,8 @@ paths:
           - model.activated
           - model_update
           - note.added
+          - password.reset_completed
+          - password.reset_requested
           - quick_check.created
           - register
           - report.created
@@ -493,6 +495,8 @@ paths:
           * `model.activated` - Version de modèle activée
           * `apikey.created` - Création d'une clé API
           * `apikey.revoked` - Révocation d'une clé API
+          * `password.reset_requested` - Demande de réinitialisation
+          * `password.reset_completed` - Mot de passe réinitialisé
       - in: query
         name: date_from
         schema:
@@ -564,12 +568,27 @@ paths:
       operationId: auth_change_password_create
       tags:
       - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePassword'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ChangePassword'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ChangePassword'
+        required: true
       security:
       - ApiKeyAuth: []
       - jwtAuth: []
       responses:
-        '200':
+        '204':
           description: No response body
+        '400':
+          description: Mot de passe actuel incorrect ou nouveau mot de passe trop
+            faible.
   /api/auth/login/:
     post:
       operationId: auth_login_create
@@ -600,12 +619,26 @@ paths:
       operationId: auth_logout_create
       tags:
       - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Logout'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Logout'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Logout'
+        required: true
       security:
       - ApiKeyAuth: []
       - jwtAuth: []
       responses:
-        '200':
+        '204':
           description: No response body
+        '400':
+          description: Token invalide ou expiré.
   /api/auth/me/:
     get:
       operationId: auth_me_retrieve
@@ -671,6 +704,63 @@ paths:
               schema:
                 $ref: '#/components/schemas/User'
           description: ''
+  /api/auth/password-reset/:
+    post:
+      operationId: auth_password_reset_create
+      description: |-
+        US5 - request a reset link. NEVER reveals whether the account exists.
+
+        Always the same 202 + body (existing, unknown or suspended email); the
+        lookup, the token and the email are done in the Celery task, so the
+        response time does not leak the answer either.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PasswordResetRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PasswordResetRequest'
+        required: true
+      security:
+      - ApiKeyAuth: []
+      - jwtAuth: []
+      - {}
+      responses:
+        '202':
+          description: Toujours 202, que l'email existe ou non.
+  /api/auth/password-reset/confirm/:
+    post:
+      operationId: auth_password_reset_confirm_create
+      description: US5 - set the new password with the emailed uid + token.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetConfirm'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PasswordResetConfirm'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PasswordResetConfirm'
+        required: true
+      security:
+      - ApiKeyAuth: []
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          description: Mot de passe réinitialisé.
+        '400':
+          description: Lien invalide ou expiré, ou mot de passe trop faible.
   /api/auth/refresh/:
     post:
       operationId: auth_refresh_create
@@ -2089,6 +2179,8 @@ components:
       - model.activated
       - apikey.created
       - apikey.revoked
+      - password.reset_requested
+      - password.reset_completed
       type: string
       description: |-
         * `register` - Inscription
@@ -2115,6 +2207,8 @@ components:
         * `model.activated` - Version de modèle activée
         * `apikey.created` - Création d'une clé API
         * `apikey.revoked` - Révocation d'une clé API
+        * `password.reset_requested` - Demande de réinitialisation
+        * `password.reset_completed` - Mot de passe réinitialisé
     AdminError:
       type: object
       description: '400/404/409 body: machine-readable `code` + human `detail` (schema
@@ -2460,6 +2554,18 @@ components:
       required:
       - code
       - detail
+    ChangePassword:
+      type: object
+      properties:
+        old_password:
+          type: string
+          writeOnly: true
+        new_password:
+          type: string
+          writeOnly: true
+      required:
+      - new_password
+      - old_password
     ClaimedLabelEnum:
       enum:
       - safe
@@ -2608,6 +2714,13 @@ components:
       - message
       - ok
       - value
+    Logout:
+      type: object
+      properties:
+        refresh:
+          type: string
+      required:
+      - refresh
     ModeEnum:
       enum:
       - fast
@@ -2989,6 +3102,30 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Scan'
+    PasswordResetConfirm:
+      type: object
+      description: US5 - uid + token from the emailed link + the new password.
+      properties:
+        uid:
+          type: string
+        token:
+          type: string
+        new_password:
+          type: string
+          writeOnly: true
+      required:
+      - new_password
+      - token
+      - uid
+    PasswordResetRequest:
+      type: object
+      description: US5 - the same 202 is returned whether the email exists or not.
+      properties:
+        email:
+          type: string
+          format: email
+      required:
+      - email
     PatchedAdminUser:
       type: object
       properties:
@@ -3083,6 +3220,8 @@ components:
           type: string
           format: date-time
           readOnly: true
+        email_notifications:
+          type: boolean
     ProtectedBrand:
       type: object
       description: Read-only projection of a protected brand (id = public UUID).
@@ -3768,6 +3907,8 @@ components:
           type: string
           format: date-time
           readOnly: true
+        email_notifications:
+          type: boolean
       required:
       - date_joined
       - email
