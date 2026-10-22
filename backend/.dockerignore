@@ -1,0 +1,52 @@
+# Secrets: never bake an environment file into the image.
+.env
+.env.*
+*.env
+!.env.example
+
+# Virtualenv (the image builds its own in the builder stage).
+phishing_env/
+venv/
+.venv/
+
+# Local database.
+db.sqlite3
+*.sqlite3
+*.sqlite3.backup-*
+*.sqlite3.old-*
+
+# Python caches / test artefacts.
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache
+*.log
+
+# Tests and dev tooling: not shipped, and requirements-dev.txt is not used
+# by the image (production installs requirements.txt only).
+**/test_*.py
+**/tests/
+conftest.py
+pytest.ini
+.coveragerc
+ruff.toml
+requirements-dev.txt
+run_audit.py
+run_pytest.py
+run_tests.py
+
+# Documentation and reports (kept in the repository, not in the image).
+docs/
+*.md
+
+# Repository metadata.
+.git/
+.gitignore
+
+# Frontend / other roots (defensive: the build context is backend/).
+frontend/
+ml/

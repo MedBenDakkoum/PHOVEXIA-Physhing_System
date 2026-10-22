@@ -5,14 +5,39 @@ from pathlib import Path
 from django.core.exceptions import ImproperlyConfigured
 from dotenv import load_dotenv
 
+from config.production import (
+    build_logging_settings,
+    build_security_settings,
+    is_production,
+    parse_hosts,
+    redact_credentials,
+    require_env,
+)
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
 logger = logging.getLogger(__name__)
 
-SECRET_KEY = os.environ["SECRET_KEY"]
-DEBUG = os.getenv("DEBUG", "False") == "True"
-ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "").split(",")
+# ---------------------------------------------------------------------------
+# Environment-driven production settings (config/production.py).
+#
+# PRODUCTION_MODE = DJANGO_ENV=production OR DEBUG is not explicitly "True".
+# In that path SECRET_KEY and ALLOWED_HOSTS are REQUIRED (clear startup
+# error, no default key) and DEBUG is forced to False. Local development
+# (.env with DEBUG=True) keeps the previous behaviour.
+# ---------------------------------------------------------------------------
+DJANGO_ENV = (os.getenv("DJANGO_ENV") or "development").strip().lower()
+PRODUCTION_MODE = is_production(os.environ)
+
+DEBUG = (not PRODUCTION_MODE) and os.getenv("DEBUG", "False") == "True"
+
+SECRET_KEY = require_env(
+    os.environ,
+    "SECRET_KEY",
+    hint="the Django signing key (long, random, private).",
+)
+ALLOWED_HOSTS = parse_hosts(os.environ, required=PRODUCTION_MODE)
 
 # CORS (Step 8c) - browser origins allowed to call the API cross-origin.
 # Comma-separated in .env; the DEFAULT is empty = no cross-origin request is
@@ -177,7 +202,9 @@ def _caches_config() -> dict:
             logger.warning(
                 "Redis cache %s unreachable (%s); falling back to LocMemCache "
                 "(per process only, NOT a protection for production).",
-                url,
+                # REDIS_URL embeds the password (full Docker profile): the
+                # logged URL must never carry credentials.
+                redact_credentials(url),
                 exc,
             )
         else:
@@ -347,6 +374,10 @@ MODELS_DIR = Path(os.getenv("MODELS_DIR", BASE_DIR / "models"))
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
 STATIC_URL = 'static/'
+# Feature: production settings. Where `manage.py collectstatic` writes; nginx
+# serves this directory (deploy/nginx.conf) from the shared static_volume.
+# Overridable for the container path /app/staticfiles.
+STATIC_ROOT = Path(os.getenv("STATIC_ROOT", BASE_DIR / "staticfiles"))
 
 
 # Email
@@ -354,27 +385,35 @@ STATIC_URL = 'static/'
 # Step 13 (US5, US56, US57): every value comes from .env (keys keep the
 # classic EMAIL_* names); the default backend prints to the console so a
 # fresh install works without SMTP. Django 6.1 configures mail through
-# MAILERS and REFUSES the flat EMAIL_HOST/... globals next to it, so the
-# env values are read straight into the MAILERS dict below.
+# MAILERS instead of the flat EMAIL_HOST/... globals, so the env values are
+# read straight into the MAILERS dict below.
 
 DEFAULT_FROM_EMAIL = os.getenv(
     "DEFAULT_FROM_EMAIL", "noreply@phishing-detector.local"
 )
 
+_mailer_backend = os.getenv(
+    "EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
+)
+
+# Backend kwargs are accepted by the SMTP backend only: Django 6.1 raises
+# InvalidMailer for any option a backend does not understand (the console
+# backend rejects host/port/...), so they are attached conditionally.
+if _mailer_backend.endswith("smtp.EmailBackend"):
+    _mailer_options = {
+        "host": os.getenv("EMAIL_HOST", ""),
+        "port": _positive_int_env("EMAIL_PORT", 587),
+        "username": os.getenv("EMAIL_HOST_USER", ""),
+        "password": os.getenv("EMAIL_HOST_PASSWORD", ""),
+        "use_tls": os.getenv("EMAIL_USE_TLS", "True") == "True",
+    }
+else:
+    _mailer_options = {}
+
 MAILERS = {
     "default": {
-        "BACKEND": os.getenv(
-            "EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
-        ),
-        # Backend kwargs (host/port/... are swallowed by the console
-        # backend and used by the SMTP one).
-        "OPTIONS": {
-            "host": os.getenv("EMAIL_HOST", ""),
-            "port": _positive_int_env("EMAIL_PORT", 587),
-            "username": os.getenv("EMAIL_HOST_USER", ""),
-            "password": os.getenv("EMAIL_HOST_PASSWORD", ""),
-            "use_tls": os.getenv("EMAIL_USE_TLS", "True") == "True",
-        },
+        "BACKEND": _mailer_backend,
+        "OPTIONS": _mailer_options,
     },
 }
 
@@ -469,3 +508,35 @@ CELERY_TASK_SOFT_TIME_LIMIT = 60
 CELERY_TASK_TIME_LIMIT = 90
 CELERY_TASK_ALWAYS_EAGER = False
 CELERY_TASK_EAGER_PROPAGATES_EXCEPTIONS = False
+
+# ---------------------------------------------------------------------------
+# Feature: production settings (ISO-6.6 security).
+#
+# All values come from the environment (backend/.env in dev, the compose
+# `environment` block in the full profile) and default to OFF so a plain-HTTP
+# local stack keeps working:
+#   - HTTPS values: SECURE_SSL_REDIRECT, SECURE_HSTS_*,
+#     SESSION_COOKIE_SECURE, CSRF_COOKIE_SECURE -> deploy/README.md
+#   - SECURE_PROXY_SSL_HEADER is declared ONLY when USE_X_FORWARDED_PROTO is
+#     truthy, otherwise Django would trust an X-Forwarded-Proto header that
+#     any client can send by itself.
+# A malformed flag fails at startup (config.production.bool_env), it never
+# silently falls back to a "safe-looking" default.
+# ---------------------------------------------------------------------------
+_SECURITY = build_security_settings(os.environ)
+SECURE_SSL_REDIRECT = _SECURITY["SECURE_SSL_REDIRECT"]
+SECURE_HSTS_SECONDS = _SECURITY["SECURE_HSTS_SECONDS"]
+SECURE_HSTS_INCLUDE_SUBDOMAINS = _SECURITY["SECURE_HSTS_INCLUDE_SUBDOMAINS"]
+SECURE_HSTS_PRELOAD = _SECURITY["SECURE_HSTS_PRELOAD"]
+SESSION_COOKIE_SECURE = _SECURITY["SESSION_COOKIE_SECURE"]
+CSRF_COOKIE_SECURE = _SECURITY["CSRF_COOKIE_SECURE"]
+SECURE_CONTENT_TYPE_NOSNIFF = _SECURITY["SECURE_CONTENT_TYPE_NOSNIFF"]
+SECURE_REFERRER_POLICY = _SECURITY["SECURE_REFERRER_POLICY"]
+X_FRAME_OPTIONS = _SECURITY["X_FRAME_OPTIONS"]
+CSRF_TRUSTED_ORIGINS = _SECURITY["CSRF_TRUSTED_ORIGINS"]
+SECURE_PROXY_SSL_HEADER = _SECURITY["SECURE_PROXY_SSL_HEADER"]
+
+# Feature: production settings (ISO-6.5 / ISO-6.6): everything goes to stdout
+# so `docker compose logs` is the single place to read, level from LOG_LEVEL,
+# format without request bodies, credentials or tokens.
+LOGGING = build_logging_settings(os.environ)

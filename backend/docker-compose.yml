@@ -1,4 +1,40 @@
+# Backend stack.
+#
+# Local development (unchanged behaviour):
+#   docker compose up -d        -> db + redis only (profile-independent services)
+#
+# Full production-like stack (profile "full"):
+#   docker compose --profile full up --build -d
+#     -> db + redis + migrate (one-shot) + web (gunicorn) + worker + beat + nginx
+#     -> http://127.0.0.1:8080 (nginx) is the only public entry point
+#
+# Every host port stays bound to 127.0.0.1. See deploy/README.md.
+
+x-backend-environment: &backend-environment
+  # --- runtime mode: production path in config/settings.py -------------
+  DJANGO_ENV: production
+  DEBUG: "False"
+  # --- database: the `db` service, not localhost ------------------------
+  DB_ENGINE: postgres
+  DB_HOST: db
+  DB_PORT: "5432"
+  # --- broker + throttle counters: the `redis` service, WITH password ----
+  # redis starts with --requirepass when REDIS_PASSWORD is set in .env;
+  # the entrypoint refuses to start a backend service without it.
+  REDIS_URL: "redis://:${REDIS_PASSWORD:-}@redis:6379/0"
+  # --- behind nginx: exactly 1 proxy in front of gunicorn ---------------
+  # nginx OVERWRITES X-Forwarded-For with the connection peer (deploy/
+  # nginx.conf), so the header holds ONE address: the real client IP.
+  # NUM_PROXIES=1 makes DRF read that trusted value (it takes the LAST
+  # element) as the throttle key instead of the nginx container address.
+  NUM_PROXIES: "1"
+  USE_X_FORWARDED_PROTO: "True"
+  # --- paths inside the container ---------------------------------------
+  STATIC_ROOT: /app/staticfiles
+  MODELS_DIR: /app/models
+
 services:
+  # ============================ dev services (no profile) ==============
   db:
     image: postgres:16
     container_name: pishing_db
@@ -26,14 +62,157 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-    # Bind Redis to localhost only
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    # Bind Redis to localhost only.
+    # Authentication is switched on as soon as REDIS_PASSWORD is set in .env:
+    # the full profile requires it (deploy/docker-entrypoint.sh fails fast
+    # without it), while a dev .env without the key keeps plain redis-server.
+    # Every REDIS_URL therefore carries the password (see .env).
+    command:
+      - sh
+      - -c
+      - 'if [ -n "$$REDIS_PASSWORD" ]; then exec redis-server --requirepass "$$REDIS_PASSWORD" --protected-mode yes; else exec redis-server; fi'
     ports:
       - "127.0.0.1:6379:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      # PONG only when the answer to AUTH is right; NOAUTH/gone-wrong => unhealthy.
+      test:
+        - CMD-SHELL
+        - 'if [ -n "$$REDIS_PASSWORD" ]; then redis-cli -a "$$REDIS_PASSWORD" ping; else redis-cli ping; fi | grep -q PONG'
       interval: 10s
       timeout: 5s
       retries: 5
 
+  # ============================ profile "full" =========================
+  # One-shot: schema + static files. Services that serve traffic depend on
+  # `service_completed_successfully`, so migrations run exactly once per
+  # `up`, never silently inside a web/worker/beat start.
+  migrate:
+    profiles: ["full"]
+    image: phishing-backend:local
+    env_file:
+      - .env
+    environment: *backend-environment
+    command:
+      - sh
+      - -c
+      - python manage.py migrate --noinput && python manage.py collectstatic --noinput
+    volumes:
+      - static_volume:/app/staticfiles
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: "no"
+
+  web:
+    profiles: ["full"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: phishing-backend:local
+    env_file:
+      - .env
+    environment: *backend-environment
+    command:
+      - sh
+      - -c
+      - exec gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers "${GUNICORN_WORKERS:-3}" --timeout "${GUNICORN_TIMEOUT:-60}" --access-logfile - --error-logfile -
+    volumes:
+      - models_volume:/app/models:ro
+    expose:
+      - "8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import sys, urllib.request as u; sys.exit(0 if u.urlopen('http://127.0.0.1:8000/api/health/', timeout=4).status == 200 else 1)"
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+    restart: unless-stopped
+
+  worker:
+    profiles: ["full"]
+    image: phishing-backend:local
+    env_file:
+      - .env
+    environment: *backend-environment
+    command:
+      - sh
+      - -c
+      - exec celery -A config worker --concurrency "${CELERY_CONCURRENCY:-2}" --loglevel info
+    volumes:
+      - models_volume:/app/models:ro
+    # The image HEALTHCHECK probes :8000 (gunicorn): meaningless for a
+    # worker, so it is disabled here instead of staying "unhealthy".
+    healthcheck:
+      disable: true
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  beat:
+    profiles: ["full"]
+    image: phishing-backend:local
+    env_file:
+      - .env
+    environment: *backend-environment
+    # Schedule file lives in /tmp on purpose: beat holds the last-run times
+    # in memory for relative schedules, and /tmp is the only writable path
+    # of the non-root image besides /home/app.
+    command:
+      - sh
+      - -c
+      - exec celery -A config beat --loglevel info --schedule /tmp/celerybeat-schedule
+    healthcheck:
+      disable: true
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  nginx:
+    profiles: ["full"]
+    image: nginx:1.29-alpine
+    ports:
+      - "127.0.0.1:8080:80"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - static_volume:/app/staticfiles:ro
+    depends_on:
+      web:
+        condition: service_healthy
+    # End-to-end check: the request is proxied to gunicorn and must answer 200.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/api/health/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 5
+    restart: unless-stopped
+
 volumes:
   pg_data:
+  static_volume:
+  models_volume:
