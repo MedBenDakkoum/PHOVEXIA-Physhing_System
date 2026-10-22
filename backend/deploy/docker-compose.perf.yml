@@ -1,0 +1,23 @@
+# Perf-run overrides (Step 15, ISO-6.5 load test). Used with the base file,
+# never on its own:
+#
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.perf.yml \
+#       --profile full up --build -d
+#
+# Every value below exists so a 20-user run from ONE IP (127.0.0.1 behind
+# nginx) measures the PLATFORM, not the anti-abuse counters. The base file
+# and backend/.env stay untouched; nothing here is ever committed as a
+# production value.
+services:
+  web:
+    environment:
+      # Login is throttled per IP (ScopedRateThrottle): 20 users from one
+      # address would get 429 after 10 logins. Raised ONLY for the run.
+      THROTTLE_LOGIN: "10000/min"
+      # BR-01 daily quota (per user, per calendar day): the mix submits
+      # ~25 % of its requests as new scans.
+      SCAN_DAILY_QUOTA: "100000"
+      # BR-02 anonymous quick-check limit per IP per hour (5 % of the mix).
+      # Env fallback is used: the DetectionSettings singleton table is empty
+      # in a fresh stack, so get_detection_settings() returns these values.
+      QUICK_CHECK_HOURLY_LIMIT: "10000"
