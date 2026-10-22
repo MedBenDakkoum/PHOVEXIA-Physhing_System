@@ -33,9 +33,20 @@ def url_for_verdict(verdict: str, attempts: int = 10_000) -> str:
     raise AssertionError(f"no URL found for verdict {verdict}")
 
 
-URL_PHISHING = url_for_verdict(VERDICT_PHISHING)
-URL_LEGITIMATE = url_for_verdict(VERDICT_LEGITIMATE)
-URL_UNCERTAIN = url_for_verdict(VERDICT_UNCERTAIN)
+# Step 12 (US52): predict() reads DetectionSettings (DB), and module import
+# runs WITHOUT DB access (pytest-django blocks it) -> resolve lazily.
+URL_PHISHING: str | None = None
+URL_LEGITIMATE: str | None = None
+URL_UNCERTAIN: str | None = None
+
+
+@pytest.fixture(autouse=True)
+def _verdict_urls(db):
+    global URL_PHISHING, URL_LEGITIMATE, URL_UNCERTAIN
+    if URL_PHISHING is None:
+        URL_PHISHING = url_for_verdict(VERDICT_PHISHING)
+        URL_LEGITIMATE = url_for_verdict(VERDICT_LEGITIMATE)
+        URL_UNCERTAIN = url_for_verdict(VERDICT_UNCERTAIN)
 
 
 def make_scan(url, status=Scan.Status.SUBMITTED, mode=Scan.Mode.FAST):

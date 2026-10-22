@@ -19,12 +19,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.response import Response
+
+from controlpanel.services import get_detection_settings
 
 from ..models import Scan
 
@@ -73,7 +74,8 @@ def _count_today(user: User, start: datetime, end: datetime) -> int:
 
 def get_quota_status(user: User) -> QuotaStatus:
     """Read-only snapshot of the quota (US14: remaining). No lock needed."""
-    limit = settings.SCAN_DAILY_QUOTA
+    # Step 12 (US52): admin-configurable limit (DB singleton, env fallback).
+    limit = get_detection_settings().daily_scan_quota
     start, end = _day_bounds(timezone.now())
     used = _count_today(user, start, end)
     return QuotaStatus(
@@ -87,7 +89,8 @@ def check_quota(user: User) -> QuotaStatus:
     See module docstring for the race-safety contract: call this inside the
     same transaction.atomic() block that creates the Scan.
     """
-    limit = settings.SCAN_DAILY_QUOTA
+    # Step 12 (US52): admin-configurable limit (DB singleton, env fallback).
+    limit = get_detection_settings().daily_scan_quota
     start, end = _day_bounds(timezone.now())
     with transaction.atomic():
         # Row lock on the user: serialises concurrent quota checks for the

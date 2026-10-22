@@ -47,6 +47,13 @@ class AuditLog(models.Model):
         BLOCKLIST_ADDED = "blocklist.added", "Ajout à la blocklist"
         BLOCKLIST_REMOVED = "blocklist.removed", "Retrait de la blocklist"
         BLOCKLIST_EXPORTED = "blocklist.exported", "Export de la blocklist"
+        # Step 12 (US52, US48, US54): admin control panel. metadata =
+        # old/new values (settings), model version label (activation),
+        # key prefix only - NEVER the secret (US54). Migration 0007.
+        SETTINGS_CHANGED = "settings.changed", "Réglages de détection modifiés"
+        MODEL_ACTIVATED = "model.activated", "Version de modèle activée"
+        APIKEY_CREATED = "apikey.created", "Création d'une clé API"
+        APIKEY_REVOKED = "apikey.revoked", "Révocation d'une clé API"
 
     # Qui : FK (filtrage) + copie de l'email (conservée même si le compte disparaît,
     # et utilisable pour une tentative de connexion sur un email inconnu).

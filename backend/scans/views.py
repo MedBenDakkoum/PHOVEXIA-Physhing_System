@@ -49,11 +49,16 @@ from rest_framework.filters import OrderingFilter
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
-from rest_framework.throttling import ScopedRateThrottle
+from rest_framework.throttling import (
+    AnonRateThrottle,
+    ScopedRateThrottle,
+    UserRateThrottle,
+)
 
 from accounts.permissions import IsEndUser
 from audit.models import AuditLog
 from audit.services import record
+from controlpanel.throttling import ApiKeyRateThrottle
 
 from .filters import ScanFilter
 from .models import Scan
@@ -162,6 +167,14 @@ class ScanListCreateView(generics.ListCreateAPIView):
     serializer_class = ScanSerializer
     pagination_class = ScanPagination
     permission_classes: ClassVar[list] = [IsEndUser]
+    # Step 12 (US54): the same defaults as everywhere (anon 30/min, user
+    # 120/min) PLUS the per-API-key bucket (60/min per key). The key
+    # throttle is a no-op for JWT and anonymous requests.
+    throttle_classes: ClassVar[list] = [
+        AnonRateThrottle,
+        UserRateThrottle,
+        ApiKeyRateThrottle,
+    ]
     # Step 8b: django-filter (q, verdict, status, created_after, created_before)
     # then the ordering whitelist. Both operate on the owner-scoped queryset.
     filter_backends: ClassVar[list] = [DjangoFilterBackend, OrderingFilter]
@@ -317,6 +330,12 @@ class ScanDetailView(generics.RetrieveAPIView):
     queryset = Scan.objects.all()
     serializer_class = ScanSerializer
     permission_classes: ClassVar[list] = [IsEndUser]
+    # Step 12 (US54): same throttles as the list (incl. 60/min per API key).
+    throttle_classes: ClassVar[list] = [
+        AnonRateThrottle,
+        UserRateThrottle,
+        ApiKeyRateThrottle,
+    ]
 
     @extend_schema(
         tags=["scans"],

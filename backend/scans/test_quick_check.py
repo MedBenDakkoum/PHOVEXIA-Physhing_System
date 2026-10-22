@@ -182,6 +182,8 @@ def test_the_detail_exposes_only_status_verdict_score_and_finished_at(api_client
         "verdict",
         "score",
         "detection_source",
+        # Step 12 (US48): which ModelVersion predicted it.
+        "model_version",
         "finished_at",
     }
     assert "url" not in detail.data and "id" not in detail.data
