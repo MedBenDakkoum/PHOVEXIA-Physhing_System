@@ -1,6 +1,7 @@
 """
 BR-02 - anonymous quick check limit: QUICK_CHECK_HOURLY_LIMIT per IP per hour
-(US11, default 5, Admin-configurable through the env).
+(US11, default 5, Admin-configurable at runtime through /api/admin/settings/ -
+US52 Step 12 -, with the env value as fallback).
 
 Decisions (documented in docs/HANDOFF.md):
 - The counter lives in the Django cache: Redis DB 1 in production (shared by
@@ -22,11 +23,12 @@ from __future__ import annotations
 
 import time
 
-from django.conf import settings
 from django.core.cache import cache
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
+
+from controlpanel.services import get_detection_settings
 
 WINDOW_SECONDS = 3600
 _KEY_PREFIX = "quick-check"
@@ -70,7 +72,8 @@ def hit_quick_check_limit(ip: str) -> int:
 
     Returns the count for this window (useful for logs and tests).
     """
-    limit = settings.QUICK_CHECK_HOURLY_LIMIT
+    # Step 12 (US52): admin-configurable limit (DB singleton, env fallback).
+    limit = get_detection_settings().quick_check_hourly_limit
     counter_key, reset_key = _counter_key(ip), _reset_key(ip)
 
     if cache.add(counter_key, 1, timeout=WINDOW_SECONDS):

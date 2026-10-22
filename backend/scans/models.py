@@ -66,6 +66,10 @@ class Scan(models.Model):
         choices=DetectionSource.choices,
         default=DetectionSource.MODEL,
     )
+    # Step 12 (US48): label of the ModelVersion that produced the verdict
+    # (filled at prediction time from the active version). Empty for
+    # blocklist verdicts (no model ran) and for scans not yet predicted.
+    model_version = models.CharField("Model version", max_length=50, blank=True, default="")
     error_message = models.TextField("Error message", null=True, blank=True)
     # Step 10 (US34 / BR-04): human review outcome. Owner-facing data never
     # includes the analyst identity, only the decision itself (ISO-6.6).

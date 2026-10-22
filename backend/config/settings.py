@@ -218,6 +218,8 @@ INSTALLED_APPS = [
     'reviews',
     # Step 11: blocklist and protected brands (US38-US41, US55).
     'blocklist',
+    # Step 12: admin control panel (US45, US48, US49, US52-US54 / BR-11).
+    'controlpanel',
 ]
 
 MIDDLEWARE = [
@@ -311,18 +313,31 @@ USE_I18N = True
 USE_TZ = True
 
 # BR-01 / US-14: max scans per user per calendar day (in TIME_ZONE above).
-# Same limit for every role (end_user, analyst, admin) - deliberate decision.
+# Same limit for every role (end user, analyst, admin) - deliberate decision.
+# Step 12 (US52): fallback while the DetectionSettings table is empty.
 SCAN_DAILY_QUOTA = _positive_int_env("SCAN_DAILY_QUOTA", 20)
 
 # Step 9 / US11 / BR-02: anonymous quick checks per IP per hour. Enforced by
 # an atomic counter in the cache (scans.services.quick_check), not by DRF.
+# Step 12 (US52): fallback while the DetectionSettings table is empty.
 QUICK_CHECK_HOURLY_LIMIT = _positive_int_env("QUICK_CHECK_HOURLY_LIMIT", 5)
 
 # Detection thresholds (verdict = phishing if score >= upper, legitimate if
 # score <= lower, uncertain in between -> analyst queue). Validated by
 # scans.services.inference.__thresholds(): floats in [0, 1] and lower < upper.
+# Step 12 (US52): these are the FALLBACK values used while the
+# DetectionSettings table is empty; once an admin PATCHes /api/admin/settings/
+# the DB row wins (controlpanel.services.settings.get_detection_settings).
 DETECTION_PHISHING_THRESHOLD = _float_env("DETECTION_PHISHING_THRESHOLD", 0.70)
 DETECTION_UNCERTAIN_LOWER = _float_env("DETECTION_UNCERTAIN_LOWER", 0.40)
+
+# Step 12 (US53): a scan still ANALYZING after this many minutes is reported
+# as "stuck" by GET /api/admin/health/.
+ANALYZING_STUCK_MINUTES = _positive_int_env("ANALYZING_STUCK_MINUTES", 10)
+
+# Step 12 (US48): directory where model files live (file_path is validated
+# against path traversal inside this directory).
+MODELS_DIR = Path(os.getenv("MODELS_DIR", BASE_DIR / "models"))
 
 
 # Static files (CSS, JavaScript, Images)
@@ -349,6 +364,10 @@ CACHES = _caches_config()
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
+        # Step 12 (US54): Api-Key BEFORE JWT. It returns None for any other
+        # scheme, and raises 401 when an Api-Key hits an endpoint outside the
+        # allowlist (POST /api/scans/, GET /api/scans/{uuid}/).
+        "controlpanel.authentication.ApiKeyAuthentication",
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
@@ -371,6 +390,8 @@ REST_FRAMEWORK = {
         "quick_check_detail": _throttle_rate_env(
             "THROTTLE_QUICK_CHECK_DETAIL", "60/min"
         ),
+        # Step 12 (US54): per-API-key throttle (controlpanel.throttling).
+        "api_key": _throttle_rate_env("THROTTLE_API_KEY", "60/min"),
     },
     # Step 8d: 0 proxies => the throttle key is REMOTE_ADDR; a client-supplied
     # X-Forwarded-For is NEVER trusted (set N behind N reverse proxies).
@@ -391,9 +412,13 @@ SPECTACULAR_SETTINGS = {
     # through a field named "status". Without explicit names for BOTH, the
     # enum post-processor emits a "non-optimally resolvable collision"
     # warning and invents unstable enum names (Warnings must stay at 0).
+    # Step 12: same story for two fields named "kind"
+    # (ModelVersion.Kind vs Notification.Kind).
     "ENUM_NAME_OVERRIDES": {
         "ScanStatusEnum": "scans.models.Scan.Status",
         "ReportStatusEnum": "reviews.models.Report.Status",
+        "ModelVersionKindEnum": "controlpanel.models.ModelVersion.Kind",
+        "NotificationKindEnum": "reviews.models.Notification.Kind",
     },
 }
 

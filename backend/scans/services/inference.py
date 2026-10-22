@@ -20,8 +20,9 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 
-from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
+
+from controlpanel.services import get_detection_settings
 
 VERDICT_PHISHING = "phishing"
 VERDICT_LEGITIMATE = "legitimate"
@@ -40,13 +41,17 @@ class PredictionResult:
 def _thresholds() -> tuple[float, float]:
     """Return (lower, upper) thresholds, validated.
 
+    Step 12 (US52): the values come from the DetectionSettings singleton
+    (30 s cache) and fall back to settings/env while the table is empty.
+
     Raises ImproperlyConfigured if a threshold is not a float in [0, 1]
     or if lower >= upper (an empty/invalid uncertain band would make the
     verdict ambiguous).
     """
+    snapshot = get_detection_settings()
     try:
-        lower = float(settings.DETECTION_UNCERTAIN_LOWER)
-        upper = float(settings.DETECTION_PHISHING_THRESHOLD)
+        lower = float(snapshot.uncertain_lower)
+        upper = float(snapshot.phishing_threshold)
     except (TypeError, ValueError) as exc:
         raise ImproperlyConfigured(
             f"Detection thresholds must be numbers: {exc}"

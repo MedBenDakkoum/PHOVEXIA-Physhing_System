@@ -3,6 +3,436 @@ info:
   title: Phishing Multimodal API
   version: 0.1.0
 paths:
+  /api/admin/api-keys/:
+    get:
+      operationId: admin_api_keys_list
+      description: Ni le secret ni son hash ne figurent jamais dans la liste.
+      summary: Lister les clés API (US54)
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - admin
+      security:
+      - ApiKeyAuth: []
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedApiKeyList'
+          description: ''
+    post:
+      operationId: admin_api_keys_create
+      description: 'Le champ `secret` n''apparaît QUE dans cette réponse de création
+        et n''est jamais stocké (SHA-256 seulement). Portées : `scan:create`, `scan:read`.
+        Audit : `apikey.created` (préfixe seulement, jamais le secret).'
+      summary: Créer une clé API (US54)
+      tags:
+      - admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApiKeyCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ApiKeyCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ApiKeyCreate'
+        required: true
+      security:
+      - ApiKeyAuth: []
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeyCreated'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminError'
+          description: ''
+  /api/admin/api-keys/{public_id}/:
+    delete:
+      operationId: admin_api_keys_destroy
+      description: 'Soft revoke : `is_active = false` + `revoked_at` (la ligne est
+        conservée). Une clé révoquée est refusée avec 401. Audit : `apikey.revoked`.'
+      summary: Révoquer une clé API (US54)
+      parameters:
+      - in: path
+        name: public_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - admin
+      security:
+      - ApiKeyAuth: []
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminError'
+          description: ''
+  /api/admin/dashboard/:
+    get:
+      operationId: admin_dashboard_retrieve
+      description: Totaux, répartition par verdict/statut/source, taux de phishing,
+        taux de faux positifs = FALSE_POSITIVE / (CONFIRMED + FALSE_POSITIVE), reviews
+        en attente, médiane de durée (Python, 10 000 scans finis max), scans par jour
+        (fuseau du projet), top 10 des domaines phishing, utilisateurs par rôle et
+        nombre de quick checks. Agrégats uniquement, cache 60 s par période.
+      summary: Tableau de bord administrateur (US45)
+      parameters:
+      - in: query
+        name: from
+        schema:
+          type: string
+        description: Date de début YYYY-MM-DD (fuseau TIME_ZONE), avec `to`.
+      - in: query
+        name: period
+        schema:
+          type: string
+          enum:
+          - 30d
+          - 7d
+          - 90d
+        description: Fenêtre glissante (défaut 30d).
+      - in: query
+        name: to
+        schema:
+          type: string
+        description: Date de fin YYYY-MM-DD (incluse), avec `from`.
+      tags:
+      - admin
+      security:
+      - ApiKeyAuth: []
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dashboard'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminError'
+          description: ''
+  /api/admin/health/:
+    get:
+      operationId: admin_health_retrieve
+      description: 'Base (ping), Redis (ping), workers Celery (inspect().ping(), timeout
+        1 s, « unreachable » au lieu d''une erreur), longueur de file Redis, scans
+        bloqués en ANALYZING au-delà de ANALYZING_STUCK_MINUTES, dernier scan terminé,
+        version de modèle active. Chaque contrôle renvoie ok/message : jamais d''échec
+        de la requête, jamais de secret ni de pile d''appels.'
+      summary: Santé détaillée du système (US53)
+      tags:
+      - admin
+      security:
+      - ApiKeyAuth: []
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminHealth'
+          description: ''
+  /api/admin/models/:
+    get:
+      operationId: admin_models_list
+      description: Réservé aux administrateurs, du plus récent au plus ancien.
+      summary: Lister les versions du modèle (US48)
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      tags:
+      - admin
+      security:
+      - ApiKeyAuth: []
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedModelVersionList'
+          description: ''
+    post:
+      operationId: admin_models_create
+      description: Métadonnées uniquement (pas d'upload). `file_path` est relatif
+        à `MODELS_DIR` (path traversal refusé), le fichier doit exister pour un modèle
+        ONNX, et `sha256` est calculé quand le fichier existe. (name, version) doit
+        être unique (409 `already_exists`).
+      summary: Enregistrer une version du modèle (US48)
+      tags:
+      - admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelVersionCreate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ModelVersionCreate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ModelVersionCreate'
+        required: true
+      security:
+      - ApiKeyAuth: []
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelVersion'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminError'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminError'
+          description: ''
+  /api/admin/models/{public_id}/:
+    get:
+      operationId: admin_models_retrieve
+      description: GET /api/admin/models/{uuid}/ - one version (US48).
+      summary: Détail d'une version du modèle (US48)
+      parameters:
+      - in: path
+        name: public_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - admin
+      security:
+      - ApiKeyAuth: []
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelVersion'
+          description: ''
+  /api/admin/models/{public_id}/activate/:
+    post:
+      operationId: admin_models_activate_create
+      description: 'Transaction verrouillée : la version précédente est désactivée
+        PUIS la nouvelle activée (BR-11 = une seule active). Le SHA-256 du fichier
+        est revérifié avant l''activation. Audit : `model.activated`.'
+      summary: Activer une version du modèle (US48 / BR-11)
+      parameters:
+      - in: path
+        name: public_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelVersion'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ModelVersion'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ModelVersion'
+      security:
+      - ApiKeyAuth: []
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelVersion'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminError'
+          description: ''
+  /api/admin/models/compare/:
+    get:
+      operationId: admin_models_compare_retrieve
+      description: Métriques côte à côte + écart par rapport à la PREMIERE valeur
+        de `ids`. 400 si moins de 2 identifiants ou identifiant inconnu.
+      summary: Comparer des versions du modèle (US49)
+      parameters:
+      - in: query
+        name: ids
+        schema:
+          type: string
+        description: Liste d'UUID publics séparés par des virgules (>= 2).
+        required: true
+      tags:
+      - admin
+      security:
+      - ApiKeyAuth: []
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelCompare'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminError'
+          description: ''
+  /api/admin/models/rollback/:
+    post:
+      operationId: admin_models_rollback_create
+      description: 'Réactive la dernière version qui était active avant l''actuelle.
+        409 `no_previous_version` s''il n''y en a aucune. Audit : `model.activated`
+        (rollback: true).'
+      summary: Réactiver la version précédente (US48)
+      tags:
+      - admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelVersion'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ModelVersion'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ModelVersion'
+      security:
+      - ApiKeyAuth: []
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelVersion'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminError'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminError'
+          description: ''
+  /api/admin/settings/:
+    get:
+      operationId: admin_settings_retrieve
+      description: 'Singleton : seuils (`phishing_threshold`, `uncertain_lower`) et
+        quotas (`daily_scan_quota`, `quick_check_hourly_limit`). Si la table est vide,
+        les valeurs Django/env par défaut sont renvoyées. Lecture mise en cache 30
+        s.'
+      summary: Lire les réglages de détection (US52)
+      tags:
+      - admin
+      security:
+      - ApiKeyAuth: []
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetectionSettings'
+          description: ''
+    patch:
+      operationId: admin_settings_partial_update
+      description: 'PATCH partiel : seuls les champs fournis sont modifiés, puis le
+        ensemble est validé (`0 < uncertain_lower < phishing_threshold <= 1`, quotas
+        entiers >= 1 et bornés). Cache invalidé immédiatement. Audit : `settings.changed`
+        (anciennes + nouvelles valeurs).'
+      summary: Modifier les réglages de détection (US52)
+      tags:
+      - admin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedDetectionSettingsUpdate'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedDetectionSettingsUpdate'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedDetectionSettingsUpdate'
+      security:
+      - ApiKeyAuth: []
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetectionSettings'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminError'
+          description: ''
   /api/audit/logs/:
     get:
       operationId: audit_logs_list
@@ -14,6 +444,8 @@ paths:
         schema:
           type: string
           enum:
+          - apikey.created
+          - apikey.revoked
           - blocklist.added
           - blocklist.exported
           - blocklist.removed
@@ -22,6 +454,7 @@ paths:
           - decision
           - login_failed
           - login_success
+          - model.activated
           - model_update
           - note.added
           - quick_check.created
@@ -32,6 +465,7 @@ paths:
           - scan.rescanned
           - scan_created
           - scan_status_changed
+          - settings.changed
           - user_reactivate
           - user_suspend
         description: |-
@@ -55,6 +489,10 @@ paths:
           * `blocklist.added` - Ajout à la blocklist
           * `blocklist.removed` - Retrait de la blocklist
           * `blocklist.exported` - Export de la blocklist
+          * `settings.changed` - Réglages de détection modifiés
+          * `model.activated` - Version de modèle activée
+          * `apikey.created` - Création d'une clé API
+          * `apikey.revoked` - Révocation d'une clé API
       - in: query
         name: date_from
         schema:
@@ -88,6 +526,7 @@ paths:
       tags:
       - audit
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '200':
@@ -111,6 +550,7 @@ paths:
       tags:
       - audit
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '200':
@@ -125,6 +565,7 @@ paths:
       tags:
       - auth
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '200':
@@ -160,6 +601,7 @@ paths:
       tags:
       - auth
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '200':
@@ -170,6 +612,7 @@ paths:
       tags:
       - auth
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '200':
@@ -194,6 +637,7 @@ paths:
             schema:
               $ref: '#/components/schemas/User'
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '200':
@@ -218,6 +662,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedUser'
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '200':
@@ -274,6 +719,7 @@ paths:
               $ref: '#/components/schemas/Register'
         required: true
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       - {}
       responses:
@@ -314,6 +760,7 @@ paths:
       tags:
       - auth
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '200':
@@ -339,6 +786,7 @@ paths:
       tags:
       - auth
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '200':
@@ -372,6 +820,7 @@ paths:
             schema:
               $ref: '#/components/schemas/AdminUser'
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '200':
@@ -405,6 +854,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedAdminUser'
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '200':
@@ -427,6 +877,7 @@ paths:
       tags:
       - auth
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '204':
@@ -491,6 +942,7 @@ paths:
       tags:
       - blocklist
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '200':
@@ -520,6 +972,7 @@ paths:
               $ref: '#/components/schemas/BlocklistCreate'
         required: true
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '201':
@@ -558,6 +1011,7 @@ paths:
       tags:
       - blocklist
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '204':
@@ -588,6 +1042,7 @@ paths:
       tags:
       - blocklist
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '200':
@@ -625,6 +1080,7 @@ paths:
       tags:
       - brands
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '200':
@@ -654,6 +1110,7 @@ paths:
               $ref: '#/components/schemas/ProtectedBrandCreate'
         required: true
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '201':
@@ -682,6 +1139,7 @@ paths:
       tags:
       - brands
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '200':
@@ -714,6 +1172,7 @@ paths:
             schema:
               $ref: '#/components/schemas/ProtectedBrand'
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '200':
@@ -747,6 +1206,7 @@ paths:
             schema:
               $ref: '#/components/schemas/PatchedProtectedBrandPatch'
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '200':
@@ -774,10 +1234,29 @@ paths:
       tags:
       - brands
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '204':
           description: No response body
+  /api/health/:
+    get:
+      operationId: health_retrieve
+      description: 'Public : `{''status'': ''ok''}` uniquement, aucun détail.'
+      summary: Santé minimale (US53)
+      tags:
+      - health
+      security:
+      - ApiKeyAuth: []
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicHealth'
+          description: ''
   /api/notifications/:
     get:
       operationId: notifications_list
@@ -800,6 +1279,7 @@ paths:
       tags:
       - notifications
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '200':
@@ -835,6 +1315,7 @@ paths:
             schema:
               $ref: '#/components/schemas/Notification'
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '200':
@@ -867,6 +1348,7 @@ paths:
               $ref: '#/components/schemas/QuickCheck'
         required: true
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       - {}
       responses:
@@ -904,6 +1386,7 @@ paths:
       tags:
       - quick-check
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       - {}
       responses:
@@ -938,6 +1421,7 @@ paths:
       tags:
       - review
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '200':
@@ -978,6 +1462,7 @@ paths:
               $ref: '#/components/schemas/Decision'
         required: true
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '200':
@@ -1035,6 +1520,7 @@ paths:
               $ref: '#/components/schemas/NoteCreate'
         required: true
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '201':
@@ -1072,6 +1558,7 @@ paths:
               $ref: '#/components/schemas/RescanCreated'
         required: true
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '202':
@@ -1159,6 +1646,7 @@ paths:
       tags:
       - review
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '200':
@@ -1263,6 +1751,7 @@ paths:
       tags:
       - scans
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '200':
@@ -1293,6 +1782,7 @@ paths:
               $ref: '#/components/schemas/ScanCreate'
         required: true
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '202':
@@ -1329,6 +1819,7 @@ paths:
       tags:
       - scans
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '200':
@@ -1376,6 +1867,7 @@ paths:
               $ref: '#/components/schemas/ReportCreate'
         required: true
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '201':
@@ -1413,6 +1905,7 @@ paths:
       tags:
       - scans
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       responses:
         '200':
@@ -1545,6 +2038,7 @@ paths:
       tags:
       - schema
       security:
+      - ApiKeyAuth: []
       - jwtAuth: []
       - {}
       responses:
@@ -1591,6 +2085,10 @@ components:
       - blocklist.added
       - blocklist.removed
       - blocklist.exported
+      - settings.changed
+      - model.activated
+      - apikey.created
+      - apikey.revoked
       type: string
       description: |-
         * `register` - Inscription
@@ -1613,6 +2111,41 @@ components:
         * `blocklist.added` - Ajout à la blocklist
         * `blocklist.removed` - Retrait de la blocklist
         * `blocklist.exported` - Export de la blocklist
+        * `settings.changed` - Réglages de détection modifiés
+        * `model.activated` - Version de modèle activée
+        * `apikey.created` - Création d'une clé API
+        * `apikey.revoked` - Révocation d'une clé API
+    AdminError:
+      type: object
+      description: '400/404/409 body: machine-readable `code` + human `detail` (schema
+        only).'
+      properties:
+        code:
+          type: string
+        detail:
+          type: string
+        errors:
+          type: object
+          additionalProperties: {}
+      required:
+      - code
+      - detail
+    AdminHealth:
+      type: object
+      description: 'GET /api/admin/health/ response (never fails: every check is reported).'
+      properties:
+        status:
+          type: string
+        checked_at:
+          type: string
+        checks:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/HealthCheck'
+      required:
+      - checked_at
+      - checks
+      - status
     AdminUser:
       type: object
       properties:
@@ -1650,6 +2183,141 @@ components:
       - email
       - id
       - last_login
+    ApiKey:
+      type: object
+      description: Read-only projection - NEVER contains the secret or the hash (US54).
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+        owner_email:
+          type: string
+          format: email
+          readOnly: true
+        key_prefix:
+          type: string
+          readOnly: true
+        scopes:
+          readOnly: true
+        is_active:
+          type: boolean
+          readOnly: true
+          title: Active
+        expires_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        last_used_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        revoked_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - created_at
+      - expires_at
+      - id
+      - is_active
+      - key_prefix
+      - last_used_at
+      - name
+      - owner_email
+      - revoked_at
+      - scopes
+    ApiKeyCreate:
+      type: object
+      description: POST /api/admin/api-keys/ body.
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        scopes:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScopesEnum'
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - name
+      - scopes
+    ApiKeyCreated:
+      type: object
+      description: |-
+        Creation response: the standard fields PLUS the secret, shown ONCE.
+
+        Must be fed the MODEL INSTANCE (not a dict): `id` and `owner_email` use
+        custom `source` paths that a plain dict does not satisfy. The secret only
+        exists here, passed through the context by the view.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+        owner_email:
+          type: string
+          format: email
+          readOnly: true
+        key_prefix:
+          type: string
+          readOnly: true
+        scopes:
+          readOnly: true
+        is_active:
+          type: boolean
+          readOnly: true
+          title: Active
+        expires_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        last_used_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        revoked_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        secret:
+          type: string
+          readOnly: true
+      required:
+      - created_at
+      - expires_at
+      - id
+      - is_active
+      - key_prefix
+      - last_used_at
+      - name
+      - owner_email
+      - revoked_at
+      - scopes
+      - secret
     AuditLog:
       type: object
       properties:
@@ -1800,6 +2468,73 @@ components:
       description: |-
         * `safe` - Légitime
         * `phishing` - Phishing
+    Dashboard:
+      type: object
+      description: |-
+        GET /api/admin/dashboard/ response (US45). Nested breakdowns are
+        JSON dicts keyed by status/verdict/domain, so they stay schema-light.
+      properties:
+        period:
+          type: object
+          additionalProperties: {}
+        totals:
+          type: object
+          additionalProperties: {}
+        quick_checks:
+          type: integer
+        scans_by_verdict:
+          type: object
+          additionalProperties: {}
+        scans_by_status:
+          type: object
+          additionalProperties: {}
+        scans_by_detection_source:
+          type: object
+          additionalProperties: {}
+        phishing_rate:
+          type: number
+          format: double
+          nullable: true
+        false_positive_rate:
+          type: number
+          format: double
+          nullable: true
+        pending_reviews:
+          type: integer
+        median_scan_duration_seconds:
+          type: number
+          format: double
+          nullable: true
+        scans_per_day:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+        top_phishing_domains:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+        users_by_role:
+          type: object
+          additionalProperties: {}
+        median_sample_size:
+          type: integer
+      required:
+      - false_positive_rate
+      - median_sample_size
+      - median_scan_duration_seconds
+      - pending_reviews
+      - period
+      - phishing_rate
+      - quick_checks
+      - scans_by_detection_source
+      - scans_by_status
+      - scans_by_verdict
+      - scans_per_day
+      - top_phishing_domains
+      - totals
+      - users_by_role
     Decision:
       type: object
       description: POST /api/review/{uuid}/decision/ body (US34 / US38-US41).
@@ -1822,6 +2557,35 @@ components:
       description: |-
         * `confirm_phishing` - Confirmer le phishing
         * `false_positive` - Faux positif
+    DetectionSettings:
+      type: object
+      description: GET /api/admin/settings/ response (values come from the service).
+      properties:
+        phishing_threshold:
+          type: number
+          format: double
+        uncertain_lower:
+          type: number
+          format: double
+        daily_scan_quota:
+          type: integer
+        quick_check_hourly_limit:
+          type: integer
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_by_email:
+          type: string
+          format: email
+          nullable: true
+      required:
+      - daily_scan_quota
+      - phishing_threshold
+      - quick_check_hourly_limit
+      - uncertain_lower
+      - updated_at
+      - updated_by_email
     DetectionSourceEnum:
       enum:
       - model
@@ -1830,11 +2594,20 @@ components:
       description: |-
         * `model` - Model
         * `blocklist` - Blocklist
-    KindEnum:
-      enum:
-      - report_decision
-      type: string
-      description: '* `report_decision` - Décision sur un signalement'
+    HealthCheck:
+      type: object
+      description: 'One health check: ok + short message + optional machine value.'
+      properties:
+        ok:
+          type: boolean
+        message:
+          type: string
+        value:
+          nullable: true
+      required:
+      - message
+      - ok
+      - value
     ModeEnum:
       enum:
       - fast
@@ -1843,6 +2616,123 @@ components:
       description: |-
         * `fast` - Fast
         * `full` - Full
+    ModelCompare:
+      type: object
+      description: 'GET /api/admin/models/compare/ response: side-by-side metrics
+        + deltas.'
+      properties:
+        baseline_id:
+          type: string
+          format: uuid
+        models:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+        metrics:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+      required:
+      - baseline_id
+      - metrics
+      - models
+    ModelVersion:
+      type: object
+      description: Read-only projection of a model version (id = public UUID).
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+        version:
+          type: string
+          readOnly: true
+        kind:
+          allOf:
+          - $ref: '#/components/schemas/ModelVersionKindEnum'
+          readOnly: true
+        file_path:
+          type: string
+          readOnly: true
+        sha256:
+          type: string
+          readOnly: true
+          title: SHA-256
+        metrics:
+          readOnly: true
+        notes:
+          type: string
+          readOnly: true
+        is_active:
+          type: boolean
+          readOnly: true
+          title: Active
+        created_by_email:
+          type: string
+          format: email
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        activated_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - activated_at
+      - created_at
+      - created_by_email
+      - file_path
+      - id
+      - is_active
+      - kind
+      - metrics
+      - name
+      - notes
+      - sha256
+      - version
+    ModelVersionCreate:
+      type: object
+      description: POST /api/admin/models/ body (metadata only, no file upload).
+      properties:
+        name:
+          type: string
+          maxLength: 100
+        version:
+          type: string
+          maxLength: 50
+        kind:
+          $ref: '#/components/schemas/ModelVersionKindEnum'
+        file_path:
+          type: string
+          default: ''
+          maxLength: 500
+        metrics:
+          type: object
+          additionalProperties: {}
+        notes:
+          type: string
+          maxLength: 2000
+      required:
+      - kind
+      - name
+      - version
+    ModelVersionKindEnum:
+      enum:
+      - MOCK
+      - ONNX
+      type: string
+      description: |-
+        * `MOCK` - Mock
+        * `ONNX` - ONNX
     Note:
       type: object
       description: Read-only projection of an internal note (analyst-only endpoints).
@@ -1881,7 +2771,7 @@ components:
           readOnly: true
         kind:
           allOf:
-          - $ref: '#/components/schemas/KindEnum'
+          - $ref: '#/components/schemas/NotificationKindEnum'
           readOnly: true
         scan:
           type: string
@@ -1907,9 +2797,37 @@ components:
       - message
       - read_at
       - scan
+    NotificationKindEnum:
+      enum:
+      - report_decision
+      type: string
+      description: '* `report_decision` - Décision sur un signalement'
     NullEnum:
       enum:
       - null
+    PaginatedApiKeyList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApiKey'
     PaginatedAuditLogList:
       type: object
       required:
@@ -1956,6 +2874,29 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/BlocklistEntry'
+    PaginatedModelVersionList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModelVersion'
     PaginatedNotificationList:
       type: object
       required:
@@ -2080,6 +3021,32 @@ components:
           format: date-time
           readOnly: true
           nullable: true
+    PatchedDetectionSettingsUpdate:
+      type: object
+      description: |-
+        PATCH /api/admin/settings/ body: every field optional (partial).
+
+        Range/cross-field rules (0 < lower < threshold <= 1, quotas >= 1) are
+        applied on the MERGED values by services.settings.validate_settings_values.
+      properties:
+        phishing_threshold:
+          type: number
+          format: double
+          maximum: 1.0
+          minimum: 0.0
+        uncertain_lower:
+          type: number
+          format: double
+          maximum: 1.0
+          minimum: 0.0
+        daily_scan_quota:
+          type: integer
+          maximum: 10000
+          minimum: 1
+        quick_check_hourly_limit:
+          type: integer
+          maximum: 1000
+          minimum: 1
     PatchedProtectedBrandPatch:
       type: object
       description: 'PATCH /api/brands/{uuid}/ body: every field optional.'
@@ -2165,6 +3132,14 @@ components:
       required:
       - domain
       - name
+    PublicHealth:
+      type: object
+      description: 'GET /api/health/ response: public, minimal, no details (US53).'
+      properties:
+        status:
+          type: string
+      required:
+      - status
     QuickCheck:
       type: object
       description: 'Step 9 - POST /api/quick-check/ body: {"url": "..."} and nothing
@@ -2206,7 +3181,8 @@ components:
         The URL, the domain, the mode and the owner are deliberately absent: an
         anonymous caller gets the verdict of an anonymous scan, nothing more.
         `detection_source` (Step 11 / US41) tells whether the verdict came from
-        the model or from an immediate blocklist hit.
+        the model or from an immediate blocklist hit. `model_version` (Step 12 /
+        US48) is the label of the ModelVersion that predicted this verdict.
       properties:
         status:
           allOf:
@@ -2227,6 +3203,9 @@ components:
           allOf:
           - $ref: '#/components/schemas/DetectionSourceEnum'
           readOnly: true
+        model_version:
+          type: string
+          readOnly: true
         finished_at:
           type: string
           format: date-time
@@ -2235,6 +3214,7 @@ components:
       required:
       - detection_source
       - finished_at
+      - model_version
       - score
       - status
       - verdict
@@ -2606,6 +3586,9 @@ components:
         detection_source:
           type: string
           readOnly: true
+        model_version:
+          type: string
+          readOnly: true
         created_at:
           type: string
           format: date-time
@@ -2636,6 +3619,7 @@ components:
       - has_report
       - id
       - mode
+      - model_version
       - report_status
       - reviewed_at
       - score
@@ -2721,6 +3705,14 @@ components:
         * `false_positive` - False Positive
         * `blocked` - Blocked
         * `failed` - Failed
+    ScopesEnum:
+      enum:
+      - scan:create
+      - scan:read
+      type: string
+      description: |-
+        * `scan:create` - Create scans
+        * `scan:read` - Read scans
     TokenObtainPair:
       type: object
       properties:
@@ -2792,6 +3784,13 @@ components:
         * `legitimate` - Legitimate
         * `uncertain` - Uncertain
   securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: 'Clé API : en-tête `Authorization` avec le préfixe `Api-Key `,
+        puis le secret. Accepté uniquement sur `POST /api/scans/` et `GET /api/scans/{public_id}/`
+        (le secret n''est montré qu''une fois, à la création).'
     jwtAuth:
       type: http
       scheme: bearer

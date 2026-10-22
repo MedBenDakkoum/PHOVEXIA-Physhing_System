@@ -89,7 +89,12 @@ def _store_result(scan_id: int, result: PredictionResult) -> str | None:
             return None
         scan.verdict = result.verdict
         scan.score = result.score
-        scan.save(update_fields=["verdict", "score", "updated_at"])
+        # Step 12 (US48): stamp which ModelVersion produced this verdict
+        # (the currently active one; empty if none is active).
+        from controlpanel.services import get_active_model_version_label
+
+        scan.model_version = get_active_model_version_label()
+        scan.save(update_fields=["verdict", "score", "model_version", "updated_at"])
         change_status(scan, Scan.Status.DETECTED, actor=None)
         if result.verdict == VERDICT_UNCERTAIN:
             change_status(scan, Scan.Status.UNDER_REVIEW, actor=None)

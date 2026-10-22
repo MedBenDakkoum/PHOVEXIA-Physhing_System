@@ -41,6 +41,9 @@ class ScanSerializer(serializers.ModelSerializer):
     # Step 11 (US41): model or blocklist. Exposed so the UI can explain an
     # immediate verdict ("domaine déjà bloqué").
     detection_source = serializers.CharField(read_only=True)
+    # Step 12 (US48): which ModelVersion produced the verdict (empty until
+    # the prediction ran, and for blocklist verdicts).
+    model_version = serializers.CharField(read_only=True)
 
     class Meta:
         model = Scan
@@ -53,6 +56,7 @@ class ScanSerializer(serializers.ModelSerializer):
             "verdict",
             "score",
             "detection_source",
+            "model_version",
             "created_at",
             "finished_at",
             "has_report",
@@ -127,7 +131,8 @@ class QuickCheckResultSerializer(serializers.ModelSerializer):
     The URL, the domain, the mode and the owner are deliberately absent: an
     anonymous caller gets the verdict of an anonymous scan, nothing more.
     `detection_source` (Step 11 / US41) tells whether the verdict came from
-    the model or from an immediate blocklist hit.
+    the model or from an immediate blocklist hit. `model_version` (Step 12 /
+    US48) is the label of the ModelVersion that predicted this verdict.
     """
 
     class Meta:
@@ -137,6 +142,7 @@ class QuickCheckResultSerializer(serializers.ModelSerializer):
             "verdict",
             "score",
             "detection_source",
+            "model_version",
             "finished_at",
         ]
         read_only_fields: ClassVar[list[str]] = list(fields)

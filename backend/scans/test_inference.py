@@ -23,6 +23,10 @@ from scans.services.inference import (
 
 URL = "https://example.com/login?ref=1"
 
+# Step 12 (US52): predict() reads the DetectionSettings singleton, so every
+# test of this module needs DB access (the table stays empty: env fallback).
+pytestmark = pytest.mark.django_db
+
 
 # --- determinism -------------------------------------------------------------
 
