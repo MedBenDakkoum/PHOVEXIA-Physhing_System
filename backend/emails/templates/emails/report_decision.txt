@@ -1,0 +1,7 @@
+Bonjour {{ first_name }},
+
+Votre signalement sur {{ domain }} a été traité par un analyste : {{ outcome }}.
+
+Vous trouverez le détail dans votre espace, rubrique historique des scans.
+
+L'équipe de la plateforme de détection de phishing

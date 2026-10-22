@@ -220,6 +220,9 @@ INSTALLED_APPS = [
     'blocklist',
     # Step 12: admin control panel (US45, US48, US49, US52-US54 / BR-11).
     'controlpanel',
+    # Step 13 (US5, US56, US57): templated email delivery (service + Celery
+    # task + templates). No models, no URLs.
+    'emails',
 ]
 
 MIDDLEWARE = [
@@ -348,12 +351,38 @@ STATIC_URL = 'static/'
 
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
+# Step 13 (US5, US56, US57): every value comes from .env (keys keep the
+# classic EMAIL_* names); the default backend prints to the console so a
+# fresh install works without SMTP. Django 6.1 configures mail through
+# MAILERS and REFUSES the flat EMAIL_HOST/... globals next to it, so the
+# env values are read straight into the MAILERS dict below.
+
+DEFAULT_FROM_EMAIL = os.getenv(
+    "DEFAULT_FROM_EMAIL", "noreply@phishing-detector.local"
+)
 
 MAILERS = {
-    'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
+    "default": {
+        "BACKEND": os.getenv(
+            "EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
+        ),
+        # Backend kwargs (host/port/... are swallowed by the console
+        # backend and used by the SMTP one).
+        "OPTIONS": {
+            "host": os.getenv("EMAIL_HOST", ""),
+            "port": _positive_int_env("EMAIL_PORT", 587),
+            "username": os.getenv("EMAIL_HOST_USER", ""),
+            "password": os.getenv("EMAIL_HOST_PASSWORD", ""),
+            "use_tls": os.getenv("EMAIL_USE_TLS", "True") == "True",
+        },
     },
 }
+
+# Frontend base URL used in the password-reset link (no trailing slash).
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
+# Step 13 / US5: validity of a reset token, in seconds (Django reads this
+# setting in PasswordResetTokenGenerator.check_token).
+PASSWORD_RESET_TIMEOUT = _positive_int_env("PASSWORD_RESET_TIMEOUT", 3600)
 
 from datetime import timedelta
 
@@ -390,9 +419,15 @@ REST_FRAMEWORK = {
         "quick_check_detail": _throttle_rate_env(
             "THROTTLE_QUICK_CHECK_DETAIL", "60/min"
         ),
-        # Step 12 (US54): per-API-key throttle (controlpanel.throttling).
-        "api_key": _throttle_rate_env("THROTTLE_API_KEY", "60/min"),
-    },
+    # Step 12 (US54): per-API-key throttle (controlpanel.throttling).
+    "api_key": _throttle_rate_env("THROTTLE_API_KEY", "60/min"),
+    # Step 13 (US5): password reset - per IP on both endpoints.
+    # The per-EMAIL limit (3/hour) is a cache counter in accounts.services.
+    "password_reset": _throttle_rate_env("THROTTLE_PASSWORD_RESET", "5/hour"),
+    "password_reset_confirm": _throttle_rate_env(
+        "THROTTLE_PASSWORD_RESET_CONFIRM", "10/hour"
+    ),
+},
     # Step 8d: 0 proxies => the throttle key is REMOTE_ADDR; a client-supplied
     # X-Forwarded-For is NEVER trusted (set N behind N reverse proxies).
     "NUM_PROXIES": _non_negative_int_env("NUM_PROXIES", 0),

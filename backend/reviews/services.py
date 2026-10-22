@@ -19,6 +19,7 @@ from django.utils import timezone
 
 from audit.models import AuditLog
 from audit.services import record
+from emails.services import send_templated_email
 from scans.models import Scan
 from scans.services.quota import QuotaExceeded, check_quota
 from scans.services.url_validation import InvalidURL, validate_url
@@ -169,6 +170,19 @@ def submit_decision(
                 scan=locked,
                 message=_decision_message(locked, decision),
             )
+            # Step 13 (US57): email too, but ONLY when the reporter did not
+            # opt out (email_notifications gates NON-security emails only).
+            if reporter.email_notifications:
+                send_templated_email(
+                    reporter.email,
+                    "report_decision",
+                    {
+                        "domain": locked.domain,
+                        "outcome": _decision_outcome(decision),
+                        "first_name": reporter.first_name or reporter.email,
+                    },
+                    user_id=reporter.pk,
+                )
         # Step 11 (US38/US41): same transaction, only with confirm_phishing.
         if add_to_blocklist and decision == DECISION_CONFIRM_PHISHING:
             from blocklist.models import BlocklistEntry
@@ -187,12 +201,14 @@ def submit_decision(
     return locked
 
 
-def _decision_message(scan: Scan, decision: str) -> str:
+def _decision_outcome(decision: str) -> str:
     if decision == DECISION_CONFIRM_PHISHING:
-        outcome = "phishing confirmé par un analyste"
-    else:
-        outcome = "faux positif : le site est considéré comme légitime"
-    return f"Votre signalement sur {scan.domain} a été traité : {outcome}."
+        return "phishing confirmé par un analyste"
+    return "faux positif : le site est considéré comme légitime"
+
+
+def _decision_message(scan: Scan, decision: str) -> str:
+    return f"Votre signalement sur {scan.domain} a été traité : {_decision_outcome(decision)}."
 
 
 def add_note(*, scan: Scan, author, text: str, request=None) -> AnalystNote:

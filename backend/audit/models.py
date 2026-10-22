@@ -54,6 +54,11 @@ class AuditLog(models.Model):
         MODEL_ACTIVATED = "model.activated", "Version de modèle activée"
         APIKEY_CREATED = "apikey.created", "Création d'une clé API"
         APIKEY_REVOKED = "apikey.revoked", "Révocation d'une clé API"
+        # Step 13 (US5): password reset. Written by the Celery task (user id
+        # only when the account exists and is active); the typed email of an
+        # unknown address is NEVER stored. Migration 0008.
+        PASSWORD_RESET_REQUESTED = "password.reset_requested", "Demande de réinitialisation"
+        PASSWORD_RESET_COMPLETED = "password.reset_completed", "Mot de passe réinitialisé"
 
     # Qui : FK (filtrage) + copie de l'email (conservée même si le compte disparaît,
     # et utilisable pour une tentative de connexion sur un email inconnu).

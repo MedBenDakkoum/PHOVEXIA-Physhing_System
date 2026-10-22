@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
@@ -8,8 +10,15 @@ User = get_user_model()
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["id", "email", "first_name", "last_name", "role", "date_joined"]
-        read_only_fields = ["id", "email", "role", "date_joined"]
+        # Step 13 (US6): email_notifications is editable here (PATCH
+        # /api/auth/me/) and only gates the NON-security emails.
+        fields: ClassVar[list[str]] = [
+            "id", "email", "first_name", "last_name", "role",
+            "date_joined", "email_notifications",
+        ]
+        read_only_fields: ClassVar[list[str]] = [
+            "id", "email", "role", "date_joined",
+        ]
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -17,7 +26,9 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["email", "password", "first_name", "last_name"]
+        fields: ClassVar[list[str]] = [
+            "email", "password", "first_name", "last_name",
+        ]
 
     def validate_email(self, value):
         value = value.lower()
@@ -52,9 +63,31 @@ class LogoutSerializer(serializers.Serializer):
     refresh = serializers.CharField()
 
 
+class PasswordResetRequestSerializer(serializers.Serializer):
+    """US5 - the same 202 is returned whether the email exists or not."""
+
+    email = serializers.EmailField()
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    """US5 - uid + token from the emailed link + the new password."""
+
+    uid = serializers.CharField()
+    token = serializers.CharField()
+    new_password = serializers.CharField(write_only=True)
+
+    def validate_new_password(self, value):
+        validate_password(value)
+        return value
+
+
 class AdminUserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["id", "email", "first_name", "last_name", "role",
-                  "is_active", "date_joined", "last_login"]
-        read_only_fields = ["id", "email", "date_joined", "last_login"]
+        fields: ClassVar[list[str]] = [
+            "id", "email", "first_name", "last_name", "role",
+            "is_active", "date_joined", "last_login",
+        ]
+        read_only_fields: ClassVar[list[str]] = [
+            "id", "email", "date_joined", "last_login",
+        ]
