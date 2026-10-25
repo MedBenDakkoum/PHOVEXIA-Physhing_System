@@ -32,6 +32,12 @@ x-backend-environment: &backend-environment
   # --- paths inside the container ---------------------------------------
   STATIC_ROOT: /app/staticfiles
   MODELS_DIR: /app/models
+  # --- inference service (internal network only, never on the host) -----
+  # The Celery worker calls http://inference:8000 with the shared secret
+  # header; wiring lands in the worker wiring step (decision D9 order).
+  INFERENCE_URL: http://inference:8000
+  INFERENCE_API_KEY: ${INFERENCE_API_KEY:?INFERENCE_API_KEY must be set in .env}
+  INFERENCE_TIMEOUT: ${INFERENCE_TIMEOUT:-30}
 
 services:
   # ============================ dev services (no profile) ==============
@@ -211,6 +217,59 @@ services:
       start_period: 15s
       retries: 5
     restart: unless-stopped
+
+  # ======================= inference service (US26) ===================
+  # Separate CPU FastAPI service (PyTorch). The bundle (backend/ml_artifacts)
+  # is mounted READ-ONLY; the image never contains weights. The port is NOT
+  # published: only containers on this compose network reach
+  # http://inference:8000. /predict requires the X-API-Key shared secret.
+  inference:
+    profiles: ["full"]
+    build:
+      context: ../inference
+      dockerfile: Dockerfile
+      target: runtime
+    image: phish360-inference:local
+    env_file:
+      - .env
+    environment:
+      INFERENCE_API_KEY: ${INFERENCE_API_KEY:?INFERENCE_API_KEY must be set in .env}
+      ARTIFACTS_DIR: /artifacts
+      PREDICT_TIMEOUT_SECONDS: ${INFERENCE_TIMEOUT:-30}
+    volumes:
+      - ./ml_artifacts:/artifacts:ro
+    mem_limit: "3g"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import sys, urllib.request as u; sys.exit(0 if u.urlopen('http://127.0.0.1:8000/health', timeout=4).status == 200 else 1)"
+      interval: 15s
+      timeout: 5s
+      start_period: 120s
+      retries: 5
+    restart: unless-stopped
+
+  # One-shot acceptance suite (golden samples + error cases). Runs on the
+  # internal network against the healthy service; never publishes a port.
+  inference-tests:
+    profiles: ["full"]
+    build:
+      context: ../inference
+      dockerfile: Dockerfile
+      target: test
+    image: phish360-inference-tests:local
+    environment:
+      INFERENCE_URL: http://inference:8000
+      INFERENCE_API_KEY: ${INFERENCE_API_KEY:?INFERENCE_API_KEY must be set in .env}
+      ARTIFACTS_DIR: /artifacts
+    volumes:
+      - ./ml_artifacts:/artifacts:ro
+    depends_on:
+      inference:
+        condition: service_healthy
+    restart: "no"
 
 volumes:
   pg_data:
