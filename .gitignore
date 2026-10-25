@@ -33,6 +33,9 @@ datasets/
 *.ckpt
 mlruns/
 
+# Bundle d'export Kaggle (297 Mo, régénérable — hors git)
+artifacts/
+
 # Frontend (plus tard)
 node_modules/
 dist/
@@ -49,3 +52,6 @@ Thumbs.db
 
 # Documentation (ne pas versionner)
 docs/
+
+# Artifacts ML locaux (bundle Kaggle, hors git)
+ml_artifacts/
