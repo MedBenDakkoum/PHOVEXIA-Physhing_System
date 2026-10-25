@@ -1,0 +1,18 @@
+version: 2
+
+updates:
+  # Step 15 (ISO-6.8 keep-dependencies-current): weekly bumps, grouped, so
+  # the pip-audit SCA gate of the CI stays green on known CVEs.
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5

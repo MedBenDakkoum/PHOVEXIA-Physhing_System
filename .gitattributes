@@ -1,0 +1,6 @@
+# Line-ending policy (Step 15 lesson, seen live): the production image
+# execve's backend/deploy/docker-entrypoint.sh, and a CRLF checkout makes the
+# kernel fail with "no such file or directory" the moment a container starts.
+# core.autocrlf=true (Windows) otherwise rewrites *.sh with CRLF on every
+# checkout/merge.
+*.sh text eol=lf
