@@ -1,0 +1,160 @@
+name: CI
+
+# Step 15 (ISO-6.4 / ISO-6.5 quality gates): every push/PR runs the same
+# commands as the local Definition of Done (ruff, django checks, OpenAPI
+# validation, pytest on BOTH engines, bandit, pip-audit, docker build).
+# No secrets: the job sets throwaway values for the two env vars that
+# config.settings refuses to default (SECRET_KEY, ALLOWED_HOSTS).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Throwaway values, never a real key: they only satisfy the
+  # "production path" check of config.settings on a runner.
+  SECRET_KEY: ci-throwaway-key-not-a-real-secret
+  ALLOWED_HOSTS: localhost,127.0.0.1
+  DJANGO_ENV: production
+  DEBUG: "False"
+  NUM_PROXIES: "0"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  quality:
+    name: ruff + django checks + openapi
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Install backend dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: ruff
+        run: ruff check .
+
+      - name: django check (production path)
+        run: python manage.py check
+
+      - name: makemigrations --check (no missing migration)
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: OpenAPI schema validates (drf-spectacular)
+        run: python manage.py spectacular --validate --file openapi-ci.yaml
+
+  backend:
+    name: pytest (sqlite + postgres) + bandit + pip-audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: phishing
+          POSTGRES_PASSWORD: phishing-ci
+          POSTGRES_DB: phishing_ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U phishing"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Install backend dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Tests on SQLite (dev engine)
+        run: >
+          pytest -q
+          --cov --cov-report=term-missing --cov-report=xml
+          --junitxml=reports/junit-sqlite.xml
+
+      - name: Tests on PostgreSQL (prod engine)
+        env:
+          DB_ENGINE: postgres
+          DB_HOST: 127.0.0.1
+          DB_PORT: "5432"
+          DB_NAME: phishing_ci
+          DB_USER: phishing
+          DB_PASSWORD: phishing-ci
+          REDIS_URL: redis://127.0.0.1:6379/0
+        run: >
+          pytest -q
+          --cov --cov-report=term-missing --cov-report=xml
+          --junitxml=reports/junit-postgres.xml
+
+      - name: bandit (SAST, our code only)
+        run: >
+          bandit -r config accounts audit scans blocklist controlpanel
+          -x '*/migrations/*,*/test_*.py' -ll
+
+      - name: pip-audit (SCA)
+        run: pip-audit
+
+      - name: Upload coverage + junit reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: backend-reports
+          path: |
+            backend/reports/
+            backend/coverage.xml
+          if-no-files-found: ignore
+
+  docker:
+    name: docker compose config + image build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: compose config is valid (full profile)
+        run: docker compose -f backend/docker-compose.yml --profile full config --quiet
+
+      - name: Build the backend image
+        run: docker build -t phishing-backend:ci backend
+
+      - name: Migrations run inside the image
+        run: >
+          docker run --rm
+          -e SECRET_KEY=ci-throwaway-key-not-a-real-secret
+          -e ALLOWED_HOSTS=localhost
+          -e DJANGO_ENV=production
+          -e DEBUG=False
+          -e DB_ENGINE=sqlite
+          phishing-backend:ci python manage.py migrate --noinput --check --dry-run
