@@ -145,7 +145,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: prepare .env for compose
-        run: cp backend/.env.example backend/.env
+        run: cp .env.example .env
 
       - name: compose config is valid (full profile)
         run: docker compose -f backend/docker-compose.yml --profile full config --quiet
