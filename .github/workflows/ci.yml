@@ -162,4 +162,7 @@ jobs:
           -e DEBUG=False
           -e DB_ENGINE=sqlite
           -e REDIS_PASSWORD=phishing-ci
+          -e REDIS_URL=redis://localhost:6379/0
+          -e INFERENCE_API_KEY=ci-inference-key-test
+          -e INFERENCE_URL=http://inference:8000
           phishing-backend:ci python manage.py migrate --noinput --check
