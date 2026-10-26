@@ -162,4 +162,4 @@ jobs:
           -e DEBUG=False
           -e DB_ENGINE=sqlite
           -e REDIS_PASSWORD=phishing-ci
-          phishing-backend:ci python manage.py migrate --noinput --check --dry-run
+          phishing-backend:ci python manage.py migrate --noinput --check
