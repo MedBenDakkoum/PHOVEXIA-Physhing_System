@@ -379,6 +379,26 @@ SCAN_STUCK_MINUTES = _positive_int_env("SCAN_STUCK_MINUTES", 10)
 # against path traversal inside this directory).
 MODELS_DIR = Path(os.getenv("MODELS_DIR", BASE_DIR / "models"))
 
+# ---------------------------------------------------------------------------
+# Internal clients to the collector and inference services (US26 / US20).
+# All values come from the environment; empty URLs mean "not configured" and
+# the real-bundle path fails closed (infrastructure failure -> FAILED) rather
+# than silently calling a wrong endpoint. The MOCK path never uses them.
+# ---------------------------------------------------------------------------
+COLLECTOR_URL = os.getenv("COLLECTOR_URL", "")
+COLLECTOR_API_KEY = os.getenv("COLLECTOR_API_KEY", "")
+COLLECTOR_TIMEOUT = _float_env("COLLECTOR_TIMEOUT", 20.0)
+INFERENCE_URL = os.getenv("INFERENCE_URL", "")
+INFERENCE_API_KEY = os.getenv("INFERENCE_API_KEY", "")
+INFERENCE_TIMEOUT = _float_env("INFERENCE_TIMEOUT", 30.0)
+
+# Media root for user-facing artefacts (screenshots). Inside the container the
+# full profile mounts a named volume here (worker read-write, web read-only).
+MEDIA_ROOT = Path(os.getenv("MEDIA_ROOT", BASE_DIR / "media"))
+# How long a screenshot (and its scan's file) is kept before the beat job
+# deletes it (privacy / ISO-6.5 retention, same spirit as quick checks).
+SCREENSHOT_RETENTION_DAYS = _positive_int_env("SCREENSHOT_RETENTION_DAYS", 30)
+
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.1/howto/static-files/

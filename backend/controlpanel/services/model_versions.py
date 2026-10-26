@@ -260,6 +260,11 @@ def compare_model_versions(ids: list[UUID]) -> dict:
     }
 
 
+def get_active_model_version() -> ModelVersion | None:
+    """Full active ModelVersion row, or None when none is active (BR-11)."""
+    return ModelVersion.objects.filter(is_active=True).first()
+
+
 def get_active_model_version_label() -> str:
     """Label (`version`) of the active ModelVersion, or "" when none is active."""
     return (

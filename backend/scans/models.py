@@ -70,7 +70,28 @@ class Scan(models.Model):
     # (filled at prediction time from the active version). Empty for
     # blocklist verdicts (no model ran) and for scans not yet predicted.
     model_version = models.CharField("Model version", max_length=50, blank=True, default="")
+    # US17/US20: version of the verified model bundle that ran (from inference
+    # /health), distinct from the ModelVersion label. Empty for MOCK/blocklist.
+    model_bundle_version = models.CharField(
+        "Model bundle version", max_length=100, blank=True, default=""
+    )
     error_message = models.TextField("Error message", null=True, blank=True)
+    # US17: the URL the collector actually reached (after redirects), the
+    # captured signals and the per-modality probabilities. Raw HTML and text
+    # are deliberately NOT stored.
+    final_url = models.URLField("Final URL", max_length=2048, blank=True, default="")
+    signals = models.JSONField("Captured signals", default=dict, blank=True)
+    probabilities = models.JSONField(
+        "Per-modality probabilities", default=dict, blank=True
+    )
+    partial = models.BooleanField("Partial result", default=False)
+    reason_code = models.CharField("Reason code", max_length=64, blank=True, default="")
+    # US20: relative path under MEDIA_ROOT (screenshots/<public_id>.png), or
+    # empty when none was captured or it failed validation.
+    screenshot_path = models.CharField(
+        "Screenshot path", max_length=500, blank=True, default=""
+    )
+    collected_at = models.DateTimeField("Collected at", null=True, blank=True)
     # Step 10 (US34 / BR-04): human review outcome. Owner-facing data never
     # includes the analyst identity, only the decision itself (ISO-6.6).
     reviewed_by = models.ForeignKey(

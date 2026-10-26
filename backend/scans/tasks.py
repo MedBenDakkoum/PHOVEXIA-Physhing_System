@@ -18,7 +18,11 @@ declared in config.settings.CELERY_BEAT_SCHEDULE move dead scans to FAILED
 from __future__ import annotations
 
 import logging
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import timedelta
+from typing import Any
 
 from celery import shared_task
 from django.conf import settings
@@ -27,7 +31,16 @@ from django.db import transaction
 from django.utils import timezone
 
 from .models import Scan
-from .services.inference import VERDICT_UNCERTAIN, PredictionResult, predict
+from .services.collector_client import CollectorClient, CollectorError
+from .services.inference import (
+    VERDICT_UNCERTAIN,
+    PredictionResult,
+    _thresholds,
+    classify_score,
+    predict,
+)
+from .services.inference_client import InferenceClient, InferenceError
+from .services.screenshots import prepare_screenshot
 from .services.workflows import change_status
 
 logger = logging.getLogger(__name__)
@@ -38,6 +51,35 @@ _ERROR_MAX_LEN = 200
 _TIMEOUT_MESSAGE = "timeout"  # task started, worker died or analysis hung
 _QUEUE_TIMEOUT_MESSAGE = "queue_timeout"  # task never started
 
+# US26: two retries with linear backoff on collector/inference call failures
+# (attempt delays 0.5 s then 1.0 s). The scan only ends FAILED after all
+# three attempts, so a transient blip does not kill a user's scan.
+_RETRY_BASE_DELAY = 0.5
+_RETRY_COUNT = 2
+
+
+@dataclass(frozen=True)
+class ScanOutcome:
+    """Unified result stored on the scan row by _store_result.
+
+    Both the MOCK path and the real collector+inference path produce one.
+    `escalate_to_review` drives the DETECTED -> UNDER_REVIEW move: it is true
+    only for a COMPLETE uncertain verdict (fusion score inside the band);
+    a PARTIAL result stays DETECTED (the user sees the reason_code instead
+    of an analyst queue entry).
+    """
+
+    verdict: str
+    score: float | None
+    partial: bool
+    reason_code: str
+    final_url: str
+    signals: dict[str, Any]
+    probabilities: dict[str, Any]
+    model_bundle_version: str
+    screenshot_path: str
+    escalate_to_review: bool
+
 
 def _sanitize_error(exc: BaseException) -> str:
     """Short, safe error message: exception class + message, no stack trace,
@@ -46,6 +88,31 @@ def _sanitize_error(exc: BaseException) -> str:
     raw = "".join(ch for ch in raw if ch.isprintable())
     text = f"{type(exc).__name__}: {raw}".strip()
     return text[:_ERROR_MAX_LEN]
+
+
+def _sanitize_reason(reason: str) -> str:
+    """Short, safe reason string (no stack, no secret, truncated)."""
+    raw = " ".join(str(reason).split())
+    raw = "".join(ch for ch in raw if ch.isprintable())
+    return raw[:_ERROR_MAX_LEN]
+
+
+def _with_retries(fn: Callable[[], Any], *, base_delay: float = _RETRY_BASE_DELAY):
+    """Call `fn`, retrying twice with linear backoff on Collector/Inference errors.
+
+    Non-infrastructure errors propagate immediately (no pointless retry).
+    """
+    last: BaseException | None = None
+    for attempt in range(_RETRY_COUNT + 1):
+        try:
+            return fn()
+        except (CollectorError, InferenceError) as exc:
+            last = exc
+            if attempt < _RETRY_COUNT:
+                time.sleep(base_delay * (attempt + 1))
+    # The loop always runs at least once and only exits here after a failure,
+    # so `last` is set.
+    raise last  # type: ignore[misc]
 
 
 def _lock_if_submitted(scan_id: int) -> Scan | None:
@@ -66,13 +133,13 @@ def _lock_if_submitted(scan_id: int) -> Scan | None:
         return scan
 
 
-def _mark_failed(scan_id: int, exc: BaseException) -> bool:
-    """Move ANALYZING -> FAILED and store a sanitized error message.
+def _mark_failed(scan_id: int, reason: str, *, reason_code: str = "") -> bool:
+    """Move ANALYZING -> FAILED and store a short reason (+ optional reason_code).
 
     Returns False (and stores nothing) if the status changed concurrently:
     the run is abandoned instead of overwriting another decision.
     """
-    error = _sanitize_error(exc)
+    error = _sanitize_reason(reason)
     with transaction.atomic():
         scan = Scan.objects.select_for_update().filter(pk=scan_id).first()
         if scan is None or scan.status != Scan.Status.ANALYZING:
@@ -83,15 +150,26 @@ def _mark_failed(scan_id: int, exc: BaseException) -> bool:
             )
             return False
         scan.error_message = error
-        scan.save(update_fields=["error_message"])
+        scan.reason_code = (reason_code or error)[:64]
+        scan.save(update_fields=["error_message", "reason_code"])
         change_status(scan, Scan.Status.FAILED, actor=None)
     logger.warning("run_scan: scan %s failed: %s", scan_id, error)
     return True
 
 
-def _store_result(scan_id: int, result: PredictionResult) -> str | None:
-    """Store verdict/score (finished_at is set by change_status), then
-    DETECTED, then UNDER_REVIEW when the verdict is UNCERTAIN."""
+def _mark_failed_exception(scan_id: int, exc: BaseException) -> bool:
+    """Mark FAILED from an unexpected exception (sanitized)."""
+    return _mark_failed(scan_id, _sanitize_error(exc))
+
+
+def _store_result(scan_id: int, outcome: ScanOutcome, *, model_version_label: str) -> str | None:
+    """Store the verdict + new real-pipeline fields, then DETECTED,
+    then UNDER_REVIEW when `escalate_to_review` is true.
+
+    `model_version_label` is stamped from the active ModelVersion (empty when
+    none is active); `model_bundle_version` comes from the inference /health
+    bundle id (MOCK path leaves it empty).
+    """
     with transaction.atomic():
         scan = Scan.objects.select_for_update().filter(pk=scan_id).first()
         if scan is None or scan.status != Scan.Status.ANALYZING:
@@ -101,33 +179,169 @@ def _store_result(scan_id: int, result: PredictionResult) -> str | None:
                 getattr(scan, "status", "missing"),
             )
             return None
-        scan.verdict = result.verdict
-        scan.score = result.score
-        # Step 12 (US48): stamp which ModelVersion produced this verdict
-        # (the currently active one; empty if none is active).
-        from controlpanel.services import get_active_model_version_label
-
-        scan.model_version = get_active_model_version_label()
-        scan.save(update_fields=["verdict", "score", "model_version", "updated_at"])
+        scan.verdict = outcome.verdict
+        scan.score = outcome.score
+        scan.model_version = model_version_label
+        scan.partial = outcome.partial
+        scan.reason_code = outcome.reason_code
+        scan.final_url = outcome.final_url
+        scan.signals = outcome.signals
+        scan.probabilities = outcome.probabilities
+        scan.model_bundle_version = outcome.model_bundle_version
+        scan.screenshot_path = outcome.screenshot_path
+        scan.save(
+            update_fields=[
+                "verdict",
+                "score",
+                "model_version",
+                "partial",
+                "reason_code",
+                "final_url",
+                "signals",
+                "probabilities",
+                "model_bundle_version",
+                "screenshot_path",
+                "updated_at",
+            ]
+        )
         change_status(scan, Scan.Status.DETECTED, actor=None)
-        if result.verdict == VERDICT_UNCERTAIN:
+        if outcome.escalate_to_review:
             change_status(scan, Scan.Status.UNDER_REVIEW, actor=None)
         logger.info(
-            "run_scan: scan %s verdict=%s score=%.6f model=%s",
+            "run_scan: scan %s verdict=%s score=%s partial=%s bundle=%s",
             scan_id,
-            result.verdict,
-            result.score,
-            result.model_version,
+            outcome.verdict,
+            outcome.score,
+            outcome.partial,
+            outcome.model_bundle_version,
         )
         return scan.status
+
+
+def _signals_from_capture(capture) -> dict[str, Any]:
+    """Captured signals stored on the scan (the metadata MLP inputs)."""
+    return {
+        "ssl": capture.ssl,
+        "tld": capture.tld,
+        "domain": capture.domain,
+        "fld": capture.fld,
+        "subdomain": capture.subdomain,
+    }
+
+
+def _run_mock_path(scan_id: int, url: str, mode: str) -> str | None:
+    """Active version is absent or MOCK/ONNX: keep the existing MOCK flow."""
+    result: PredictionResult = predict(url, mode)
+    outcome = ScanOutcome(
+        verdict=result.verdict,
+        score=result.score,
+        partial=False,
+        reason_code="",
+        final_url="",
+        signals={},
+        probabilities={},
+        model_bundle_version="",
+        screenshot_path="",
+        escalate_to_review=(result.verdict == VERDICT_UNCERTAIN),
+    )
+    from controlpanel.services import get_active_model_version_label
+
+    return _store_result(
+        scan_id, outcome, model_version_label=get_active_model_version_label()
+    )
+
+
+def _run_real_pipeline(scan_id: int, active, scan: Scan) -> str | None:
+    """Collector -> (screenshot) -> inference for an active TORCH_BUNDLE."""
+    url = scan.url
+    collector = CollectorClient()
+    capture = _with_retries(lambda: collector.collect(url))
+
+    if capture.status != "complete":
+        # Site-level partial: verdict UNCERTAIN, DETECTED (not UNDER_REVIEW),
+        # reason_code carries the collector's reason. No inference call.
+        outcome = ScanOutcome(
+            verdict=VERDICT_UNCERTAIN,
+            score=None,
+            partial=True,
+            reason_code=capture.reason_code or "COLLECTOR_PARTIAL",
+            final_url=capture.final_url or url,
+            signals=_signals_from_capture(capture),
+            probabilities={},
+            model_bundle_version="",
+            screenshot_path="",
+            escalate_to_review=False,
+        )
+        return _store_result(scan_id, outcome, model_version_label=active.version)
+
+    screenshot_path, screenshot_png = prepare_screenshot(
+        scan.public_id, capture.screenshot_png_base64
+    )
+
+    inference = InferenceClient()
+    inf = _with_retries(
+        lambda: inference.predict(
+            url=capture.final_url or url,
+            text=capture.text or "",
+            screenshot_png=screenshot_png,
+            ssl=capture.ssl,
+            tld=capture.tld,
+            subdomain=capture.subdomain,
+        )
+    )
+
+    if inf.model_bundle_version and inf.model_bundle_version != active.version:
+        message = (
+            f"model_mismatch: bundle {inf.model_bundle_version} != "
+            f"active {active.version}"
+        )
+        ok = _mark_failed(scan_id, message, reason_code="MODEL_MISMATCH")
+        return Scan.Status.FAILED if ok else None
+
+    signals = _signals_from_capture(capture)
+    final_url = capture.final_url or url
+
+    if inf.status == "uncertain" or inf.partial:
+        outcome = ScanOutcome(
+            verdict=VERDICT_UNCERTAIN,
+            score=None,
+            partial=True,
+            reason_code=inf.reason_code or "MODEL_UNCERTAIN",
+            final_url=final_url,
+            signals=signals,
+            probabilities={**inf.base_probabilities, "fusion": None},
+            model_bundle_version=inf.model_bundle_version,
+            screenshot_path=screenshot_path,
+            escalate_to_review=False,
+        )
+        return _store_result(scan_id, outcome, model_version_label=active.version)
+
+    score = inf.phishing_probability
+    lower, upper = _thresholds()
+    verdict = classify_score(score, lower, upper)
+    outcome = ScanOutcome(
+        verdict=verdict,
+        score=score,
+        partial=False,
+        reason_code="",
+        final_url=final_url,
+        signals=signals,
+        probabilities={**inf.base_probabilities, "fusion": score},
+        model_bundle_version=inf.model_bundle_version,
+        screenshot_path=screenshot_path,
+        escalate_to_review=(verdict == VERDICT_UNCERTAIN),
+    )
+    return _store_result(scan_id, outcome, model_version_label=active.version)
 
 
 @shared_task(name="scans.run_scan", acks_late=True, reject_on_worker_lost=True)
 def run_scan(scan_id: int) -> str | None:
     """Analyze one scan: Submitted -> Analyzing -> Detected/Under review/Failed.
 
-    Returns the final status, or None when the task skipped the scan
-    (unknown id or status no longer SUBMITTED - idempotence).
+    Picks the active ModelVersion (BR-11): MOCK/none -> the existing MOCK
+    path; TORCH_BUNDLE -> collector + inference. Returns the final status, or
+    None when the task skipped the scan (unknown id or status no longer
+    SUBMITTED - idempotence).
     acks_late + reject_on_worker_lost: a worker killed mid-analysis is
     re-delivered, and the SUBMITTED-only lock makes the second run a no-op
     instead of a duplicate verdict (ISO-6.5).
@@ -136,10 +350,19 @@ def run_scan(scan_id: int) -> str | None:
     if scan is None:
         return None
     try:
-        result = predict(scan.url, scan.mode)
+        from controlpanel.models import ModelVersion
+
+        active = ModelVersion.objects.filter(is_active=True).first()
+        if active is None or active.kind != ModelVersion.Kind.TORCH_BUNDLE:
+            return _run_mock_path(scan_id, scan.url, scan.mode)
+        return _run_real_pipeline(scan_id, active, scan)
+    except (CollectorError, InferenceError) as exc:
+        # Infrastructure failure: short reason code, no stack trace.
+        reason = getattr(exc, "reason", str(exc))
+        ok = _mark_failed(scan_id, reason, reason_code=reason)
+        return Scan.Status.FAILED if ok else None
     except Exception as exc:  # noqa: BLE001 - any failure must end as FAILED, never crash the worker
-        return Scan.Status.FAILED if _mark_failed(scan_id, exc) else None
-    return _store_result(scan_id, result)
+        return Scan.Status.FAILED if _mark_failed_exception(scan_id, exc) else None
 
 
 def _reap_stale(

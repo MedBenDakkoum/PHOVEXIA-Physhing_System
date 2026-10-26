@@ -456,6 +456,12 @@ def test_list_item_fields_are_read_only_projection(auth_client, viewer):
         "detection_source",
         # Step 12 (US48): which ModelVersion predicted it.
         "model_version",
+        # US17 / US20 / US26: real-pipeline detail for owner + analysts.
+        "final_url",
+        "partial",
+        "reason_code",
+        "signals",
+        "probabilities",
         "created_at",
         "finished_at",
         # Step 10 (US31/US34): owner-facing review flags, never the analyst.
@@ -509,6 +515,12 @@ def test_detail_owner_can_read_his_scan(auth_client, viewer):
         "detection_source",
         # Step 12 (US48): which ModelVersion predicted it.
         "model_version",
+        # US17 / US20 / US26: real-pipeline detail for owner + analysts.
+        "final_url",
+        "partial",
+        "reason_code",
+        "signals",
+        "probabilities",
         "created_at",
         "finished_at",
         # Step 10 (US31/US34): owner-facing review flags, never the analyst.

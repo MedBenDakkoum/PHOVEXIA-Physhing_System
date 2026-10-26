@@ -32,9 +32,22 @@ x-backend-environment: &backend-environment
   # --- paths inside the container ---------------------------------------
   STATIC_ROOT: /app/staticfiles
   MODELS_DIR: /app/models
+  # Screenshots are written by the worker (rw) and read back by the web
+  # process through GET /api/scans/{uuid}/screenshot/ (ro). Never exposed
+  # as a static/media URL.
+  MEDIA_ROOT: /app/media
+  SCREENSHOT_RETENTION_DAYS: ${SCREENSHOT_RETENTION_DAYS:-30}
+  # --- collector sandbox (US17 / US26, only the worker reaches it) -------
+  # The worker calls http://collector:8000 on collect_net (the collector
+  # publishes no port). The overlay collector/docker-compose.collector.yml
+  # attaches the worker to that network.
+  COLLECTOR_URL: ${COLLECTOR_URL:-http://collector:8000}
+  COLLECTOR_API_KEY: ${COLLECTOR_API_KEY:-}
+  COLLECTOR_TIMEOUT: ${COLLECTOR_TIMEOUT:-20}
   # --- inference service (internal network only, never on the host) -----
   # The Celery worker calls http://inference:8000 with the shared secret
-  # header; wiring lands in the worker wiring step (decision D9 order).
+  # header; the real pipeline (collector + inference) is wired in the
+  # worker tasks (scans.run_scan).
   INFERENCE_URL: http://inference:8000
   INFERENCE_API_KEY: ${INFERENCE_API_KEY:?INFERENCE_API_KEY must be set in .env}
   INFERENCE_TIMEOUT: ${INFERENCE_TIMEOUT:-30}
@@ -128,6 +141,8 @@ services:
       - exec gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers "${GUNICORN_WORKERS:-3}" --timeout "${GUNICORN_TIMEOUT:-60}" --access-logfile - --error-logfile -
     volumes:
       - models_volume:/app/models:ro
+      # Screenshots are read back (never written) by gunicorn.
+      - media_volume:/app/media:ro
     expose:
       - "8000"
     depends_on:
@@ -161,6 +176,8 @@ services:
       - exec celery -A config worker --concurrency "${CELERY_CONCURRENCY:-2}" --loglevel info
     volumes:
       - models_volume:/app/models:ro
+      # The worker WRITES the screenshots captured by the collector.
+      - media_volume:/app/media
     # The image HEALTHCHECK probes :8000 (gunicorn): meaningless for a
     # worker, so it is disabled here instead of staying "unhealthy".
     healthcheck:
@@ -275,3 +292,4 @@ volumes:
   pg_data:
   static_volume:
   models_volume:
+  media_volume:

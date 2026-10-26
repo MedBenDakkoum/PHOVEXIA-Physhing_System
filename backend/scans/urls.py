@@ -6,6 +6,7 @@ from .views import (
     ScanDetailView,
     ScanListCreateView,
     ScanQuotaView,
+    ScanScreenshotView,
 )
 
 urlpatterns = [
@@ -13,6 +14,12 @@ urlpatterns = [
     # Before <uuid:public_id>/ so the literal "quota" can never be read as a
     # scan UUID (the uuid converter would refuse it anyway).
     path("scans/quota/", ScanQuotaView.as_view(), name="scan-quota"),
+    # US20: the captured PNG (owner/analyst/admin), before the detail route.
+    path(
+        "scans/<uuid:public_id>/screenshot/",
+        ScanScreenshotView.as_view(),
+        name="scan-screenshot",
+    ),
     # Step 8a: the public UUID only; the sequential integer pk stays internal.
     path("scans/<uuid:public_id>/", ScanDetailView.as_view(), name="scan-detail"),
     # Step 9 (US11): anonymous quick check, AllowAny, BR-02 hourly limit.

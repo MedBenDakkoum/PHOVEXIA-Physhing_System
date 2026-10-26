@@ -44,6 +44,16 @@ class ScanSerializer(serializers.ModelSerializer):
     # Step 12 (US48): which ModelVersion produced the verdict (empty until
     # the prediction ran, and for blocklist verdicts).
     model_version = serializers.CharField(read_only=True)
+    # US17 / US20 / US26: real-pipeline detail for the owner and analysts.
+    # `probabilities` holds the per-modality scores under friendly names
+    # (url, page_text, screenshot, metadata, fusion); `signals` the captured
+    # metadata (ssl, tld, domain, fld, subdomain). Raw HTML and text are
+    # deliberately NOT stored nor exposed.
+    final_url = serializers.CharField(read_only=True)
+    partial = serializers.BooleanField(read_only=True)
+    reason_code = serializers.CharField(read_only=True)
+    signals = serializers.DictField(read_only=True)
+    probabilities = serializers.DictField(read_only=True)
 
     class Meta:
         model = Scan
@@ -57,6 +67,11 @@ class ScanSerializer(serializers.ModelSerializer):
             "score",
             "detection_source",
             "model_version",
+            "final_url",
+            "partial",
+            "reason_code",
+            "signals",
+            "probabilities",
             "created_at",
             "finished_at",
             "has_report",
@@ -133,6 +148,9 @@ class QuickCheckResultSerializer(serializers.ModelSerializer):
     `detection_source` (Step 11 / US41) tells whether the verdict came from
     the model or from an immediate blocklist hit. `model_version` (Step 12 /
     US48) is the label of the ModelVersion that predicted this verdict.
+    `partial`/`reason_code` (US26) explain an incomplete result to an
+    anonymous caller; the per-model probabilities and the signals stay OUT
+    for anonymous quick checks (only owners and analysts see them).
     """
 
     class Meta:
@@ -143,6 +161,8 @@ class QuickCheckResultSerializer(serializers.ModelSerializer):
             "score",
             "detection_source",
             "model_version",
+            "partial",
+            "reason_code",
             "finished_at",
         ]
         read_only_fields: ClassVar[list[str]] = list(fields)
