@@ -1463,8 +1463,9 @@ paths:
   /api/quick-check/{public_id}/:
     get:
       operationId: quick_check_retrieve
-      description: Uniquement `status`, `verdict`, `score` et `finished_at`, et uniquement
-        pour les scans anonymes en mode fast.
+      description: Uniquement `status`, `verdict`, `score`, `partial`, `reason_code`
+        et `finished_at`, et uniquement pour les scans anonymes en mode fast. Les
+        probabilités par modèle et les signaux restent absents pour un appelant anonyme.
       summary: Suivre un quick check anonyme (US11)
       parameters:
       - in: path
@@ -1987,6 +1988,41 @@ paths:
                 additionalProperties: {}
           description: 'Conflit (409) : `code` = `already_reported` (BR-05), `not_reportable`
             (statut du scan) ou `not_decidable` (BR-04).'
+  /api/scans/{public_id}/screenshot/:
+    get:
+      operationId: scans_screenshot_retrieve
+      description: Renvoie le PNG capturé dans le bac à sable. Propriétaire, analyste
+        ou admin ; un scan sans capture (ou fichier supprimé) renvoie 404. Le répertoire
+        média n'est jamais exposé directement.
+      summary: Capture d'écran d'un scan (US20)
+      parameters:
+      - in: path
+        name: public_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - scans
+      security:
+      - ApiKeyAuth: []
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: string
+                format: binary
+          description: Capture PNG du scan (image/png).
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: Scan introuvable ou non visible par ce compte (404 volontaire,
+            jamais 403).
   /api/scans/quota/:
     get:
       operationId: scans_quota_retrieve
@@ -2842,10 +2878,12 @@ components:
       enum:
       - MOCK
       - ONNX
+      - TORCH_BUNDLE
       type: string
       description: |-
         * `MOCK` - Mock
         * `ONNX` - ONNX
+        * `TORCH_BUNDLE` - Torch bundle
     Note:
       type: object
       description: Read-only projection of an internal note (analyst-only endpoints).
@@ -3322,6 +3360,9 @@ components:
         `detection_source` (Step 11 / US41) tells whether the verdict came from
         the model or from an immediate blocklist hit. `model_version` (Step 12 /
         US48) is the label of the ModelVersion that predicted this verdict.
+        `partial`/`reason_code` (US26) explain an incomplete result to an
+        anonymous caller; the per-model probabilities and the signals stay OUT
+        for anonymous quick checks (only owners and analysts see them).
       properties:
         status:
           allOf:
@@ -3345,6 +3386,13 @@ components:
         model_version:
           type: string
           readOnly: true
+        partial:
+          type: boolean
+          readOnly: true
+          title: Partial result
+        reason_code:
+          type: string
+          readOnly: true
         finished_at:
           type: string
           format: date-time
@@ -3354,6 +3402,8 @@ components:
       - detection_source
       - finished_at
       - model_version
+      - partial
+      - reason_code
       - score
       - status
       - verdict
@@ -3728,6 +3778,23 @@ components:
         model_version:
           type: string
           readOnly: true
+        final_url:
+          type: string
+          readOnly: true
+        partial:
+          type: boolean
+          readOnly: true
+        reason_code:
+          type: string
+          readOnly: true
+        signals:
+          type: object
+          additionalProperties: {}
+          readOnly: true
+        probabilities:
+          type: object
+          additionalProperties: {}
+          readOnly: true
         created_at:
           type: string
           format: date-time
@@ -3754,14 +3821,19 @@ components:
       - created_at
       - detection_source
       - domain
+      - final_url
       - finished_at
       - has_report
       - id
       - mode
       - model_version
+      - partial
+      - probabilities
+      - reason_code
       - report_status
       - reviewed_at
       - score
+      - signals
       - status
       - url
       - verdict

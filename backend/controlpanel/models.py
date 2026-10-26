@@ -57,13 +57,16 @@ class ModelVersion(models.Model):
     class Kind(models.TextChoices):
         MOCK = "MOCK", "Mock"
         ONNX = "ONNX", "ONNX"
+        # US20 / US26: the verified torch bundle served by the inference
+        # service (registered via sync_model_version, activated by an admin).
+        TORCH_BUNDLE = "TORCH_BUNDLE", "Torch bundle"
 
     public_id = models.UUIDField(
         "Public ID", default=uuid.uuid4, unique=True, editable=False
     )
     name = models.CharField("Name", max_length=100)
     version = models.CharField("Version", max_length=50)
-    kind = models.CharField("Kind", max_length=10, choices=Kind.choices)
+    kind = models.CharField("Kind", max_length=20, choices=Kind.choices)
     # Relative to settings.MODELS_DIR; validated against path traversal at
     # registration (and re-checked at activation).
     file_path = models.CharField("File path", max_length=500, blank=True, default="")

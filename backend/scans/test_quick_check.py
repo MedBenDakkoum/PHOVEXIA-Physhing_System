@@ -184,6 +184,10 @@ def test_the_detail_exposes_only_status_verdict_score_and_finished_at(api_client
         "detection_source",
         # Step 12 (US48): which ModelVersion predicted it.
         "model_version",
+        # US26: an anonymous caller may see WHY a result is incomplete, but
+        # never the per-model probabilities nor the signals.
+        "partial",
+        "reason_code",
         "finished_at",
     }
     assert "url" not in detail.data and "id" not in detail.data

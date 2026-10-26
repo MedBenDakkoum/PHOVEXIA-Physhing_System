@@ -27,6 +27,7 @@ python-dotenv==1.2.4
 PyYAML==6.0.3
 redis==8.1.0
 referencing==0.37.0
+requests==2.34.2
 rpds-py==2026.6.3
 six==1.17.0
 sqlparse==0.6.0

@@ -1,0 +1,84 @@
+# Collector overlay (US17 / BR-07 / ISO-6.6). Used as a SECOND -f next to the
+# backend stack file; NO file under backend/ is modified (same pattern as
+# backend/deploy/docker-compose.perf.yml):
+#
+#   docker compose -f backend/docker-compose.yml \
+#       -f collector/docker-compose.collector.yml --profile full up --build -d
+#
+# Networks:
+#   collect_net  internal:true, shared ONLY with the worker -> inbound POST
+#                /collect; no route to the Internet
+#   egress_net   Internet only -> outbound fetches
+# The collector is on NO network with db / redis / inference and publishes no
+# port; the only secret in its environment is COLLECTOR_API_KEY (collector.env,
+# gitignored).
+services:
+  collector:
+    profiles: ["full"]
+    build:
+      context: ../collector
+      dockerfile: Dockerfile
+    image: phish360-collector:local
+    env_file:
+      - ../collector/collector.env
+    environment:
+      # Hard override: even a stray collector.env cannot start the service in
+      # test mode or with the private-host allowlist (spec v1 section 5.7).
+      COLLECTOR_ENV: production
+    networks:
+      - collect_net
+      - egress_net
+    mem_limit: "2g"
+    pids_limit: 512
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    expose:
+      - "8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import sys, urllib.request as u; sys.exit(0 if u.urlopen('http://127.0.0.1:8000/health', timeout=4).status == 200 else 1)"
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+    restart: unless-stopped
+
+  # One-shot acceptance suite (14 tests, real Playwright + real proxy).
+  collector-tests:
+    profiles: ["full"]
+    build:
+      context: ../collector
+      dockerfile: Dockerfile
+      target: test
+    image: phish360-collector-tests:local
+    env_file:
+      - ../collector/collector.env
+    environment:
+      COLLECTOR_ENV: test
+      COLLECTOR_ALLOW_PRIVATE_HOSTS: testserver
+      COLLECTOR_TIMEOUT_S: "5"
+      COLLECTOR_MAX_CONCURRENCY: "1"
+      COLLECTOR_PROXY_PORT: "3129"
+    extra_hosts:
+      - "testserver:127.0.0.1"
+    restart: "no"
+
+  # Existing worker: gains collect_net only (services merge by key, `default`
+  # kept explicitly) so it can later call http://collector:8000.
+  worker:
+    networks:
+      default: {}
+      collect_net: {}
+
+networks:
+  collect_net:
+    internal: true
+  egress_net: {}

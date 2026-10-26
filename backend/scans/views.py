@@ -359,6 +359,68 @@ class ScanDetailView(generics.RetrieveAPIView):
         return get_object_or_404(queryset, public_id=self.kwargs["public_id"])
 
 
+class ScanScreenshotView(generics.GenericAPIView):
+    """GET /api/scans/{uuid}/screenshot/ - the captured PNG (US20).
+
+    Owner, analyst or admin only (IsEndUser); an end user only ever reaches
+    his own scans and anybody else gets 404 (never 403, anti-probing). A scan
+    without a stored screenshot, or whose file disappeared, answers 404.
+    The media root is never exposed: the bytes are read from
+    MEDIA_ROOT/screenshots/<public_id>.png after a traversal check and served
+    with nosniff + no-store.
+    """
+
+    queryset = Scan.objects.all()
+    serializer_class = ScanSerializer
+    permission_classes: ClassVar[list] = [IsEndUser]
+    throttle_classes: ClassVar[list] = [
+        AnonRateThrottle,
+        UserRateThrottle,
+        ApiKeyRateThrottle,
+    ]
+
+    @extend_schema(
+        tags=["scans"],
+        responses={
+            200: OpenApiResponse(
+                response=OpenApiTypes.BINARY,
+                description="Capture PNG du scan (image/png).",
+            ),
+            404: _NOT_FOUND,
+        },
+        summary="Capture d'écran d'un scan (US20)",
+        description=(
+            "Renvoie le PNG capturé dans le bac à sable. Propriétaire, analyste "
+            "ou admin ; un scan sans capture (ou fichier supprimé) renvoie 404. "
+            "Le répertoire média n'est jamais exposé directement."
+        ),
+    )
+    def get(self, request, *args, **kwargs):
+        from pathlib import Path
+
+        from django.conf import settings
+        from django.http import Http404, HttpResponse
+
+        scan = self.get_object()
+        if not scan.screenshot_path:
+            raise Http404
+        media_root = Path(settings.MEDIA_ROOT).resolve()
+        full = (media_root / scan.screenshot_path).resolve()
+        if not full.is_relative_to(media_root) or not full.is_file():
+            raise Http404
+        response = HttpResponse(full.read_bytes(), content_type="image/png")
+        response["X-Content-Type-Options"] = "nosniff"
+        response["Cache-Control"] = "private, no-store"
+        return response
+
+    def get_object(self):
+        # Same visibility rule as ScanDetailView: end users only their own.
+        queryset = self.queryset
+        if self.request.user.role == User.Role.END_USER:
+            queryset = queryset.filter(owner=self.request.user)
+        return get_object_or_404(queryset, public_id=self.kwargs["public_id"])
+
+
 class ScanQuotaView(generics.GenericAPIView):
     """GET /api/scans/quota/: my quota for today (US14 / BR-01)."""
 
@@ -498,8 +560,10 @@ class QuickCheckDetailView(generics.RetrieveAPIView):
         },
         summary="Suivre un quick check anonyme (US11)",
         description=(
-            "Uniquement `status`, `verdict`, `score` et `finished_at`, et "
-            "uniquement pour les scans anonymes en mode fast."
+            "Uniquement `status`, `verdict`, `score`, `partial`, `reason_code` "
+            "et `finished_at`, et uniquement pour les scans anonymes en mode "
+            "fast. Les probabilités par modèle et les signaux restent absents "
+            "pour un appelant anonyme."
         ),
     )
     def get(self, request, *args, **kwargs):
