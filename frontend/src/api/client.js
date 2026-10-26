@@ -1,126 +1,95 @@
-import { ENDPOINTS } from "./constants";
-import { ApiError, messageFromResponse } from "./errors";
+import { ENDPOINTS } from "./constants.js";
 
-const BASE = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
-const STORAGE_KEY = "pm.tokens";
+// Same-origin in prod; Vite proxy /api in dev
+const BASE = import.meta.env.VITE_API_URL || "/api";
 
-/* ---------------------------------------------------------------- tokens */
-export const tokenStore = {
-  get() {
-    try {
-      return JSON.parse(localStorage.getItem(STORAGE_KEY)) || null;
-    } catch {
-      return null;
-    }
-  },
-  set(tokens) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ access: tokens.access, refresh: tokens.refresh }));
-  },
-  clear() {
-    localStorage.removeItem(STORAGE_KEY);
-  },
-};
+let refreshPromise = null;
 
-export const SESSION_EXPIRED_EVENT = "pm:session-expired";
-
-/* --------------------------------------------------------------- helpers */
-function buildUrl(path, params) {
-  const url = `${BASE}${path}`;
-  if (!params) return url;
-  const qs = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) {
-    if (v === undefined || v === null || v === "") continue;
-    qs.append(k, String(v));
-  }
-  const s = qs.toString();
-  return s ? `${url}?${s}` : url;
-}
-
-async function parseBody(res) {
-  if (res.status === 204) return null;
-  const text = await res.text();
-  if (!text) return null;
+function getTokens() {
   try {
-    return JSON.parse(text);
+    const raw = localStorage.getItem("pm.tokens");
+    return raw ? JSON.parse(raw) : null;
   } catch {
-    return null; // page HTML d'erreur (DEBUG Django) ou texte brut
+    return null;
   }
 }
-
-async function rawFetch(path, { method = "GET", body, params, token, signal } = {}) {
-  const headers = { Accept: "application/json" };
-  if (body !== undefined) headers["Content-Type"] = "application/json";
-  if (token) headers.Authorization = `Bearer ${token}`;
-  let res;
-  try {
-    res = await fetch(buildUrl(path, params), {
-      method,
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal,
-    });
-  } catch (e) {
-    if (e?.name === "AbortError") throw e;
-    throw new ApiError(messageFromResponse(0, null), { status: 0 });
-  }
-  const data = await parseBody(res);
-  if (!res.ok) {
-    const retryAfter = Number(res.headers.get("Retry-After")) || null;
-    throw new ApiError(messageFromResponse(res.status, data), { status: res.status, data, retryAfter });
-  }
-  return data;
+function setTokens(t) {
+  if (t) localStorage.setItem("pm.tokens", JSON.stringify(t));
+  else localStorage.removeItem("pm.tokens");
+}
+function clearTokens() {
+  localStorage.removeItem("pm.tokens");
 }
 
-/* --------------------------------------------------------------- refresh */
-// ROTATE_REFRESH_TOKENS + BLACKLIST_AFTER_ROTATION : un refresh token ne sert qu'une fois.
-// Les rafraîchissements simultanés sont donc fusionnés en un seul appel.
-let refreshing = null;
+async function doRefresh() {
+  const tokens = getTokens();
+  if (!tokens?.refresh) throw new Error("No refresh");
+  const r = await fetch(BASE + ENDPOINTS.refresh, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh: tokens.refresh }),
+  });
+  if (!r.ok) throw new Error("Refresh failed " + r.status);
+  const data = await r.json();
+  setTokens({ ...tokens, access: data.access, refresh: data.refresh || tokens.refresh });
+  return data.access;
+}
 
-export function refreshAccessToken() {
-  if (!refreshing) {
-    refreshing = (async () => {
-      const tokens = tokenStore.get();
-      if (!tokens?.refresh) throw new ApiError("Session expirée.", { status: 401 });
-      try {
-        const data = await rawFetch(ENDPOINTS.refresh, { method: "POST", body: { refresh: tokens.refresh } });
-        tokenStore.set({ access: data.access, refresh: data.refresh || tokens.refresh });
-        return data.access;
-      } catch (e) {
-        if (e instanceof ApiError && e.status === 0) throw e; // réseau coupé : on garde la session
-        tokenStore.clear();
-        window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
-        throw e;
+async function refreshOnce() {
+  if (!refreshPromise) refreshPromise = doRefresh().finally(() => { refreshPromise = null; });
+  return refreshPromise;
+}
+
+export const SESSION_EXPIRED_EVENT = "pm:session_expired";
+export { apiFetch as request, clearTokens };
+export const tokenStore = { get: getTokens, set: setTokens, clear: clearTokens };
+export async function apiFetch(url, opts = {}) {
+  const tokens = getTokens();
+  const headers = { "Content-Type": "application/json", ...opts.headers };
+  if (tokens?.access) headers.Authorization = `Bearer ${tokens.access}`;
+  const res = await fetch(BASE + url, { ...opts, headers });
+  // 401 -> single refresh once
+  if (res.status === 401 && tokens?.refresh && !opts._retry) {
+    try {
+      await refreshOnce();
+      const newTokens = getTokens();
+      const retryHeaders = { ...headers, Authorization: `Bearer ${newTokens.access}` };
+      const retry = await fetch(BASE + url, { ...opts, headers: retryHeaders, _retry: true });
+      if (!retry.ok) {
+        if (retry.status === 401) { clearTokens(); window.location.href = "/login"; }
       }
-    })().finally(() => {
-      refreshing = null;
-    });
+      return handleResponse(retry);
+    } catch {
+      clearTokens(); window.location.href = "/login"; return handleResponse(res);
+    }
   }
-  return refreshing;
+  return handleResponse(res);
 }
 
-/* --------------------------------------------------------------- request */
-/**
- * Appel d'API. Ajoute le Bearer, rafraîchit le token sur 401 puis rejoue la requête.
- * options : { method, body, params, auth = true, signal }
- */
-export async function request(path, { auth = true, ...opts } = {}) {
-  if (!auth) return rawFetch(path, opts);
+function handleResponse(res) {
+  const body = res.headers.get("content-type")?.includes("application/json") ? res.json().catch(() => null) : Promise.resolve(null);
+  return body.then(async (data) => {
+    const result = { status: res.status, ok: res.ok, data, headers: {} };
+    // 429 Retry-After
+    const ra = res.headers.get("Retry-After");
+    if (ra) result.retryAfter = parseInt(ra, 10) || 0;
+    // Errors mapping
+    if (!res.ok) {
+      if (res.status === 400) result.error = { message: (data?.detail || "Requête invalide") + (data?.field_errors ? " — " + JSON.stringify(data.field_errors) : ""), code: "BAD_REQUEST" };
+      else if (res.status === 409) result.error = { message: data?.detail || "Conflit (doublon ou état incohérent)", code: "CONFLICT" };
+      else if (res.status === 401) result.error = { message: "Non autorisé — reconnectez-vous", code: "UNAUTHORIZED" };
+      else if (res.status === 403) result.error = { message: "Accès interdit", code: "FORBIDDEN" };
+      else if (res.status === 404) result.error = { message: "Non trouvé", code: "NOT_FOUND" };
+      else if (res.status === 429) result.error = { message: `Quota atteint — réessayez dans ${result.retryAfter || "quelques"} secondes`, code: "TOO_MANY_REQUESTS" };
+      else result.error = { message: data?.detail || "Erreur serveur", code: "SERVER_ERROR", status: res.status };
+    }
+    return result;
+  });
+}
 
-  const tokens = tokenStore.get();
-  if (!tokens?.access) {
-    if (tokens?.refresh) {
-      const access = await refreshAccessToken();
-      return rawFetch(path, { ...opts, token: access });
-    }
-    throw new ApiError("Vous devez être connecté.", { status: 401 });
-  }
-  try {
-    return await rawFetch(path, { ...opts, token: tokens.access });
-  } catch (e) {
-    if (e instanceof ApiError && e.status === 401 && tokens.refresh) {
-      const access = await refreshAccessToken();
-      return rawFetch(path, { ...opts, token: access });
-    }
-    throw e;
-  }
+export function logout() {
+  clearTokens();
+  // Call logout endpoint best-effort without blocking redirect
+  fetch(BASE + ENDPOINTS.logout, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${(getTokens()?.access || "")}` } }).catch(() => null);
+  window.location.href = "/login";
 }
