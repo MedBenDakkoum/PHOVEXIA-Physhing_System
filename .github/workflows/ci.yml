@@ -114,6 +114,7 @@ jobs:
           DB_USER: phishing
           DB_PASSWORD: phishing-ci
           REDIS_URL: redis://127.0.0.1:6379/0
+  INFERENCE_API_KEY: ci-inference-key-test
         run: >
           pytest -q
           --cov --cov-report=term-missing --cov-report=xml
