@@ -83,6 +83,61 @@ export function SelectField({ label, error, hint, className = "", id: idProp, ch
   );
 }
 
+export const TextAreaField = forwardRef(function TextAreaField(
+  { label, error, hint, className = "", id: idProp, rows = 4, ...rest },
+  ref
+) {
+  const auto = useId();
+  const id = idProp || auto;
+  const describedBy = [error && `${id}-err`, hint && `${id}-hint`].filter(Boolean).join(" ") || undefined;
+  return (
+    <div className={`field ${className}`}>
+      {label && <label htmlFor={id}>{label}</label>}
+      <textarea
+        ref={ref}
+        id={id}
+        className="textarea"
+        rows={rows}
+        aria-invalid={error ? "true" : undefined}
+        aria-describedby={describedBy}
+        {...rest}
+      />
+      {hint && !error && (
+        <span id={`${id}-hint`} className="field-hint">
+          {hint}
+        </span>
+      )}
+      {error && (
+        <span id={`${id}-err`} className="field-error" role="alert">
+          <CircleAlert size={14} style={{ marginTop: 2, flex: "none" }} aria-hidden="true" />
+          {error}
+        </span>
+      )}
+    </div>
+  );
+});
+
+export function Checkbox({ label, description, checked, onChange, disabled, id: idProp }) {
+  const auto = useId();
+  const id = idProp || auto;
+  return (
+    <label className={`checkbox-row ${disabled ? "is-disabled" : ""}`} htmlFor={id}>
+      <input
+        id={id}
+        type="checkbox"
+        className="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span>
+        <strong>{label}</strong>
+        {description && <span>{description}</span>}
+      </span>
+    </label>
+  );
+}
+
 export function Switch({ checked, onChange, label, description, disabled }) {
   return (
     <button

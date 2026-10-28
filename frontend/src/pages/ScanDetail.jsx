@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { apiFetch } from "../api/client";
-import { ENDPOINTS, SCAN_STATUS, VERDICT, DETECTION_SOURCE, REASON_CODE } from "../api/constants";
+import { apiFetch, apiFetchBlob } from "../api/client";
+import { ENDPOINTS, REASON_CODE } from "../api/constants";
+import { ScanStatusBadge, VerdictBadge } from "../components/ui/Badges";
 
 export default function ScanDetail() {
   const { id } = useParams();
@@ -70,18 +71,24 @@ export default function ScanDetail() {
 
   // Screenshot blob with JWT, revoke on unmount
   useEffect(() => {
-    if (!scan || !scan.screenshot_path) return;
+    if (!scan) return undefined;
+    let active = true;
     let blobUrl = null;
     const ctrl = new AbortController();
-    const tokens = (() => { try { return JSON.parse(localStorage.getItem("pm.tokens") || "{}"); } catch { return {}; } })();
-    fetch(ENDPOINTS.scan(id) + "screenshot/", { headers: { Authorization: `Bearer ${tokens.access || ""}` }, signal: ctrl.signal })
-      .then(async r => {
-        if (r.ok) { const b = await r.blob(); blobUrl = URL.createObjectURL(b); setScreenshotUrl(blobUrl); }
-        else { console.warn("Screenshot 404"); }
+    apiFetchBlob(ENDPOINTS.scanScreenshot(id), { signal: ctrl.signal })
+      .then(async (r) => {
+        if (!active || !r.ok) return;
+        const b = await r.blob();
+        blobUrl = URL.createObjectURL(b);
+        setScreenshotUrl(blobUrl);
       })
       .catch(() => {});
-    return () => { ctrl.abort(); if (blobUrl) URL.revokeObjectURL(blobUrl); };
-  }, [scan?.screenshot_path, id]);
+    return () => {
+      active = false;
+      ctrl.abort();
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
+    };
+  }, [scan?.id, id]);
 
   // Report wrong verdict
   const handleReport = async (e) => {
@@ -94,21 +101,18 @@ export default function ScanDetail() {
   if (error) return <div role="alert" aria-live="assertive" style={{ padding: 24, color: "#ff6b78" }}>{error.msg}<br/><button onClick={() => nav("/scans")}>Retour</button></div>;
   if (!scan) return <div style={{ padding: 24 }}>Chargement…</div>;
 
-  const statusLabel = SCAN_STATUS[scan.status]?.label || scan.status;
-  const verdictLabel = VERDICT[scan.verdict]?.label || (scan.verdict || "—");
-
   return (
     <div style={{ maxWidth: 900, margin: "0 auto", padding: 24 }}>
-      <button onClick={() => nav("/scans")}>← Historique</button>
+      <button onClick={() => nav(-1)}>← Retour</button>
       <h1>Scan <span style={{ fontFamily: "monospace" }}>{id}</span></h1>
-      <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-        <span className={"badge " + (VERDICT[scan.verdict]?.badge || "")} style={{ padding: "4px 10px", borderRadius: 999, fontWeight: 700 }}>{verdictLabel}</span>
-        <span style={{ padding: "4px 10px", borderRadius: 999, background: "#0a1130", color: "#aab8de" }}>{statusLabel}</span>
+      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <VerdictBadge verdict={scan.verdict} />
+        <ScanStatusBadge status={scan.status} />
         <span>Score : <strong>{typeof scan.score === "number" ? scan.score.toFixed(3) : scan.score}</strong></span>
       </div>
       <p><strong>URL :</strong> <span style={{ wordBreak: "break-all" }}>{scan.url}</span></p>
       {scan.partial && (
-        <div role="alert" style={{ background: "#f2b84b22", padding: 12, borderRadius: 8, margin: 12, 0 }}>
+        <div role="alert" style={{ background: "#f2b84b22", padding: 12, borderRadius: 8, margin: "12px 0" }}>
           <strong>Résultat partiel — raison :</strong> {REASON_CODE[scan.reason_code] || scan.reason_code || "—"}
         </div>
       )}
@@ -137,13 +141,13 @@ export default function ScanDetail() {
         </div>
       )}
       {scan.final_url && <p><strong>URL finale :</strong> {scan.final_url}</p>}
-      {scan.screenshot_path && screenshotUrl && (
+      {screenshotUrl && (
         <figure style={{ margin: 12 }}>
           <img src={screenshotUrl} alt="Capture du site analysé" style={{ maxWidth: "100%", border: "1px solid #172254", borderRadius: 8 }} />
         </figure>
       )}
       {scan.verdict === "phishing" && (
-        <div role="alert" aria-live="assertive" style={{ background: "#ff6b78", color: "#fff", padding: 12, borderRadius: 8, margin: 12, 0 }}>
+        <div role="alert" aria-live="assertive" style={{ background: "#ff6b78", color: "#fff", padding: 12, borderRadius: 8, margin: "12px 0" }}>
           <strong>Attention — ne visitez pas ce site.</strong> Le verdict est Phishing.
         </div>
       )}

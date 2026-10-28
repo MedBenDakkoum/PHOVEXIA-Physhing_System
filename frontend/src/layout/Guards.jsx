@@ -69,7 +69,7 @@ function Forbidden() {
     <div className="card">
       <EmptyState
         icon={Lock}
-        title="Accès réservé aux administrateurs"
+        title="Accès non autorisé"
         action={
           <Button variant="gold" to="/app">
             Retour au tableau de bord

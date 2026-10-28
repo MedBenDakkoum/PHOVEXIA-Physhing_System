@@ -47,6 +47,24 @@ export const SESSION_EXPIRED_EVENT = "pm:session_expired";
 export { apiFetch as request, clearTokens };
 export const tokenStore = { get: getTokens, set: setTokens, clear: clearTokens };
 
+function buildUrl(url, params) {
+  if (!params) return BASE + url;
+  const qs = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === "") continue;
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item !== undefined && item !== null && item !== "") qs.append(key, item);
+      }
+    } else {
+      qs.append(key, value);
+    }
+  }
+  const query = qs.toString();
+  if (!query) return BASE + url;
+  return BASE + url + (url.includes("?") ? "&" : "?") + query;
+}
+
 /**
  * Déballe la enveloppe { status, ok, data, error } renvoyée par apiFetch :
  * renvoie le corps de la réponse, ou lève une ApiError (message FR,
@@ -68,20 +86,21 @@ export function unwrap(res) {
   return res;
 }
 export async function apiFetch(url, opts = {}) {
+  const { params, auth = true, _retry, headers: extraHeaders, ...rest } = opts;
   const tokens = getTokens();
-  const headers = { "Content-Type": "application/json", ...opts.headers };
-  if (tokens?.access) headers.Authorization = `Bearer ${tokens.access}`;
+  const headers = { "Content-Type": "application/json", ...extraHeaders };
+  if (auth && tokens?.access) headers.Authorization = `Bearer ${tokens.access}`;
   // fetch() convertit un objet brut en "[object Object]" : on sérialise nous-mêmes.
-  const init = { ...opts, headers };
+  const init = { ...rest, headers };
   if (init.body != null && typeof init.body !== "string") init.body = JSON.stringify(init.body);
-  const res = await fetch(BASE + url, init);
+  const res = await fetch(buildUrl(url, params), init);
   // 401 -> single refresh once
-  if (res.status === 401 && tokens?.refresh && !opts._retry) {
+  if (res.status === 401 && auth && tokens?.refresh && !_retry) {
     try {
       await refreshOnce();
       const newTokens = getTokens();
       const retryHeaders = { ...headers, Authorization: `Bearer ${newTokens.access}` };
-      const retry = await fetch(BASE + url, { ...init, headers: retryHeaders, _retry: true });
+      const retry = await fetch(buildUrl(url, params), { ...init, headers: retryHeaders });
       if (!retry.ok) {
         if (retry.status === 401) { clearTokens(); window.location.href = "/login"; }
       }
@@ -91,6 +110,33 @@ export async function apiFetch(url, opts = {}) {
     }
   }
   return handleResponse(res);
+}
+
+export async function apiFetchBlob(url, opts = {}) {
+  const { params, auth = true, _retry, headers: extraHeaders, ...rest } = opts;
+  const tokens = getTokens();
+  const headers = { ...extraHeaders };
+  if (auth && tokens?.access) headers.Authorization = `Bearer ${tokens.access}`;
+  const init = { ...rest, headers };
+  const res = await fetch(buildUrl(url, params), init);
+  if (res.status === 401 && auth && tokens?.refresh && !_retry) {
+    try {
+      await refreshOnce();
+      const newTokens = getTokens();
+      const retryHeaders = { ...headers, Authorization: `Bearer ${newTokens.access}` };
+      const retry = await fetch(buildUrl(url, params), { ...init, headers: retryHeaders });
+      if (retry.status === 401) {
+        clearTokens();
+        window.location.href = "/login";
+      }
+      return retry;
+    } catch {
+      clearTokens();
+      window.location.href = "/login";
+      return res;
+    }
+  }
+  return res;
 }
 
 function handleResponse(res) {

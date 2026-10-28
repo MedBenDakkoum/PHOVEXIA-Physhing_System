@@ -3,10 +3,7 @@ const esc = (v) => {
   return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
-export function downloadCsv(filename, columns, rows) {
-  const head = columns.map((c) => esc(c.label)).join(",");
-  const body = rows.map((r) => columns.map((c) => esc(c.value(r))).join(",")).join("\n");
-  const blob = new Blob([`\uFEFF${head}\n${body}`], { type: "text/csv;charset=utf-8" });
+export function downloadBlob(filename, blob) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -15,4 +12,11 @@ export function downloadCsv(filename, columns, rows) {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+export function downloadCsv(filename, columns, rows) {
+  const head = columns.map((c) => esc(c.label)).join(",");
+  const body = rows.map((r) => columns.map((c) => esc(c.value(r))).join(",")).join("\n");
+  const blob = new Blob([`\uFEFF${head}\n${body}`], { type: "text/csv;charset=utf-8" });
+  downloadBlob(filename, blob);
 }

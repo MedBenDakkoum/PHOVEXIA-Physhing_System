@@ -13,7 +13,7 @@ import {
   UserPlus,
   UserX,
 } from "lucide-react";
-import { AUDIT_ACTIONS, ROLES } from "../../api/constants";
+import { AUDIT_ACTIONS, CLAIMED_LABEL, DETECTION_SOURCE, ROLES, SCAN_STATUS, VERDICT } from "../../api/constants";
 
 // Clés = valeurs de Role.choices du backend : admin | analyst | end_user
 // ("viewer" n'existe pas côté backend ; on le garde comme alias défensif).
@@ -51,4 +51,52 @@ export function StatusBadge({ active }) {
 export function ActionBadge({ action, label }) {
   const meta = ACTION_META[action] || { tone: "neutral" };
   return <span className={`badge ${toneClass(meta.tone)}`}>{label || AUDIT_ACTIONS[action] || action}</span>;
+}
+
+const VERDICT_TONE = { phishing: "danger", legitimate: "success", uncertain: "gold" };
+const STATUS_TONE = {
+  submitted: "neutral",
+  analyzing: "info",
+  detected: "danger",
+  under_review: "gold",
+  confirmed: "danger",
+  false_positive: "success",
+  blocked: "danger",
+  failed: "neutral",
+};
+
+export function VerdictBadge({ verdict }) {
+  if (!verdict) return <span className="badge">—</span>;
+  return (
+    <span className={`badge ${toneClass(VERDICT_TONE[verdict])}`}>
+      {VERDICT[verdict]?.label || verdict}
+    </span>
+  );
+}
+
+export function ScanStatusBadge({ status }) {
+  if (!status) return <span className="badge">—</span>;
+  return (
+    <span className={`badge ${toneClass(STATUS_TONE[status])}`}>
+      {SCAN_STATUS[status]?.label || status}
+    </span>
+  );
+}
+
+export function DetectionBadge({ source }) {
+  if (!source) return null;
+  return (
+    <span className={`badge ${source === "blocklist" ? "badge-danger" : "badge-info"}`}>
+      {DETECTION_SOURCE[source] || source}
+    </span>
+  );
+}
+
+export function ReportBadge({ reported, claimedLabel }) {
+  if (!reported) return <span className="badge">Non signalé</span>;
+  return (
+    <span className="badge badge-gold">
+      Signalé{claimedLabel ? ` · ${CLAIMED_LABEL[claimedLabel] || claimedLabel}` : ""}
+    </span>
+  );
 }

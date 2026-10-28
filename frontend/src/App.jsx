@@ -2,12 +2,22 @@ import { Route, Routes } from "react-router-dom";
 import AppShell from "./layout/AppShell";
 import { PublicOnly, RequireAuth, RequireRole } from "./layout/Guards";
 import PublicLayout from "./layout/PublicLayout";
+import AdminApiKeys from "./pages/AdminApiKeys";
+import AdminHealth from "./pages/AdminHealth";
+import AdminModels from "./pages/AdminModels";
+import AdminSettings from "./pages/AdminSettings";
 import AuditLogs from "./pages/AuditLogs";
+import Blocklist from "./pages/Blocklist";
+import Brands from "./pages/Brands";
 import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
 import NotFound from "./pages/NotFound";
+import Notifications from "./pages/Notifications";
 import Profile from "./pages/Profile";
 import Register from "./pages/Register";
+import ReviewDetail from "./pages/ReviewDetail";
+import ReviewQueue from "./pages/ReviewQueue";
+import ScanDetail from "./pages/ScanDetail";
 import Users from "./pages/Users";
 import About from "./pages/public/About";
 import Contact from "./pages/public/Contact";
@@ -32,13 +42,27 @@ export default function App() {
       </Route>
 
       {/* Application (utilisateurs connectés) */}
-      <Route path="app" element={<RequireAuth />}>
+      <Route element={<RequireAuth />}>
         <Route element={<AppShell />}>
-          <Route index element={<Dashboard />} />
-          <Route path="profile" element={<Profile />} />
+          <Route path="app" element={<Dashboard />} />
+          <Route path="app/profile" element={<Profile />} />
+          <Route path="scans/:id" element={<ScanDetail />} />
+          <Route path="notifications" element={<Notifications />} />
+
+          <Route element={<RequireRole roles={["admin", "analyst"]} />}>
+            <Route path="review" element={<ReviewQueue />} />
+            <Route path="review/:id" element={<ReviewDetail />} />
+            <Route path="blocklist" element={<Blocklist />} />
+          </Route>
+
           <Route element={<RequireRole roles={["admin"]} />}>
-            <Route path="admin/users" element={<Users />} />
-            <Route path="admin/audit" element={<AuditLogs />} />
+            <Route path="app/admin/users" element={<Users />} />
+            <Route path="app/admin/models" element={<AdminModels />} />
+            <Route path="app/admin/settings" element={<AdminSettings />} />
+            <Route path="app/admin/health" element={<AdminHealth />} />
+            <Route path="app/admin/api-keys" element={<AdminApiKeys />} />
+            <Route path="app/admin/audit" element={<AuditLogs />} />
+            <Route path="admin/brands" element={<Brands />} />
           </Route>
         </Route>
       </Route>

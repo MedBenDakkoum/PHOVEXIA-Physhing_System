@@ -1,0 +1,9 @@
+{
+  "name": "Tranco daily top-1M",
+  "url": "https://tranco-list.eu/download/daily/top-1m.csv.zip",
+  "retrieved_at_utc": "2026-10-28T19:27:30Z",
+  "last_modified_utc": "2026-10-27T22:23:21Z",
+  "etag": "\"18e28325fea99168-945f8b\"",
+  "selection": "first 100 rows (rank 1-100), domain column",
+  "note": "Tranco is a popularity ranking. It is not a manually vetted legitimacy list; some entries are CDNs, redirectors or parked domains."
+}
