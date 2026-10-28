@@ -1,7 +1,10 @@
 import { ENDPOINTS } from "./constants.js";
+import { ApiError } from "./errors";
 
-// Same-origin in prod; Vite proxy /api in dev
-const BASE = import.meta.env.VITE_API_URL || "/api";
+// Same-origin in prod; Vite proxy /api in dev.
+// ENDPOINTS already start with "/api" — BASE must stay "" (or an origin
+// WITHOUT /api), otherwise every call goes to /api/api/... and 404s.
+const BASE = import.meta.env.VITE_API_URL || "";
 
 let refreshPromise = null;
 
@@ -43,18 +46,42 @@ async function refreshOnce() {
 export const SESSION_EXPIRED_EVENT = "pm:session_expired";
 export { apiFetch as request, clearTokens };
 export const tokenStore = { get: getTokens, set: setTokens, clear: clearTokens };
+
+/**
+ * Déballe la enveloppe { status, ok, data, error } renvoyée par apiFetch :
+ * renvoie le corps de la réponse, ou lève une ApiError (message FR,
+ * status, fieldErrors) quand la réponse est en échec.
+ * Les pages qui consomment directement apiFetch (r.ok / r.data) n'utilisent
+ * pas cette fonction.
+ */
+export function unwrap(res) {
+  if (res && typeof res === "object" && typeof res.ok === "boolean" && "data" in res) {
+    if (!res.ok) {
+      throw new ApiError(res.error?.message || "Une erreur est survenue.", {
+        status: res.status,
+        data: res.data,
+        retryAfter: res.retryAfter ?? null,
+      });
+    }
+    return res.data;
+  }
+  return res;
+}
 export async function apiFetch(url, opts = {}) {
   const tokens = getTokens();
   const headers = { "Content-Type": "application/json", ...opts.headers };
   if (tokens?.access) headers.Authorization = `Bearer ${tokens.access}`;
-  const res = await fetch(BASE + url, { ...opts, headers });
+  // fetch() convertit un objet brut en "[object Object]" : on sérialise nous-mêmes.
+  const init = { ...opts, headers };
+  if (init.body != null && typeof init.body !== "string") init.body = JSON.stringify(init.body);
+  const res = await fetch(BASE + url, init);
   // 401 -> single refresh once
   if (res.status === 401 && tokens?.refresh && !opts._retry) {
     try {
       await refreshOnce();
       const newTokens = getTokens();
       const retryHeaders = { ...headers, Authorization: `Bearer ${newTokens.access}` };
-      const retry = await fetch(BASE + url, { ...opts, headers: retryHeaders, _retry: true });
+      const retry = await fetch(BASE + url, { ...init, headers: retryHeaders, _retry: true });
       if (!retry.ok) {
         if (retry.status === 401) { clearTokens(); window.location.href = "/login"; }
       }

@@ -24,7 +24,7 @@ const PAGE_SIZE = 10;
 
 function CreateUserModal({ onClose, onCreated }) {
   const toast = useToast();
-  const [form, setForm] = useState({ email: "", password: "", first_name: "", last_name: "", role: "viewer" });
+  const [form, setForm] = useState({ email: "", password: "", first_name: "", last_name: "", role: "end_user" });
   const [errors, setErrors] = useState({});
   const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -66,7 +66,7 @@ function CreateUserModal({ onClose, onCreated }) {
           <TextField label="Nom" value={form.last_name} onChange={(e) => setForm((f) => ({ ...f, last_name: e.target.value }))} error={errors.last_name} />
         </div>
         <SelectField label="Rôle" value={form.role} onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))} error={errors.role}>
-          {ROLE_VALUES.map((role) => <option key={role} value={role}>{ROLES[role]}</option>)}
+          {ROLE_VALUES.map((role) => <option key={role} value={role}>{ROLES[role]?.label || role}</option>)}
         </SelectField>
       </form>
     </Modal>
@@ -158,7 +158,8 @@ function EditUserModal({ target, isSelf, onClose, onSaved }) {
           </span>
           <div className="role-grid" role="radiogroup" aria-labelledby="role-label">
             {ROLE_VALUES.map((r) => {
-              const Icon = ROLE_META[r].icon;
+              const meta = ROLE_META[r] || ROLE_META.end_user;
+              const Icon = meta.icon;
               return (
                 <button
                   key={r}
@@ -173,8 +174,8 @@ function EditUserModal({ target, isSelf, onClose, onSaved }) {
                     <Icon size={20} />
                   </span>
                   <span>
-                    <strong>{ROLES[r]}</strong>
-                    <span className="desc">{ROLE_META[r].desc}</span>
+                    <strong>{ROLES[r]?.label || r}</strong>
+                    <span className="desc">{meta.desc}</span>
                   </span>
                 </button>
               );
@@ -301,7 +302,7 @@ export default function Users() {
               label="Filtrer par rôle"
               value={role}
               onChange={setRole}
-              options={[{ value: "", label: "Tous les rôles" }, ...ROLE_VALUES.map((r) => ({ value: r, label: ROLES[r] }))]}
+              options={[{ value: "", label: "Tous les rôles" }, ...ROLE_VALUES.map((r) => ({ value: r, label: ROLES[r]?.label || r }))]}
             />
             <Segmented
               label="Filtrer par statut"
@@ -445,7 +446,7 @@ export default function Users() {
           ) : (
             <>
               <strong style={{ color: "var(--text)" }}>{displayName(confirm.user)}</strong> pourra de nouveau se connecter avec son
-              rôle actuel ({ROLES[confirm.user.role]}).
+              rôle actuel ({ROLES[confirm.user.role]?.label || confirm.user.role}).
             </>
           ))
         }

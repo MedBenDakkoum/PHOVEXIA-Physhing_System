@@ -9,9 +9,10 @@ export default function UrlAnalysisForm({ role }) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const submit = (event) => {
+  const submit = async (event) => {
     event.preventDefault();
     setNotice("");
+    setError("");
     let parsed;
     try {
       parsed = new URL(url.trim());
@@ -19,12 +20,36 @@ export default function UrlAnalysisForm({ role }) {
       setError("Saisissez une adresse URL valide, par exemple https://example.com.");
       return;
     }
-    if (!["http:", "https:"].includes(parsed.protocol) || !parsed.hostname.includes(".")) {
+    // Client checks ONLY scheme, length, credentials — server checks host/forbidden
+    if (!/^[a-z][a-z0-9+.-]*:$/i.test(parsed.protocol)) {
       setError("Seules les adresses web HTTP ou HTTPS sont acceptées.");
       return;
     }
-    setError("");
-    setNotice("Adresse validée. Le service d’analyse d’URL n’est pas encore connecté.");
+    if (url.trim().length > 2048) {
+      setError("L'adresse est trop longue.");
+      return;
+    }
+    if (parsed.username || parsed.password) {
+      setError("Ne pas inclure d'identifiants dans l'URL.");
+      return;
+    }
+    // Quick-check flow (anonymous) — real API call
+    try {
+      const res = await fetch("/api/quick-check/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: url.trim() })
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.detail || "Erreur du service d'analyse.");
+        return;
+      }
+      const data = await res.json();
+      setNotice("Analyse rapide : verdict = " + (data.verdict || data.status || "traité") + ".");
+    } catch (e) {
+      setError("Service indisponible. Réessayez plus tard.");
+    }
   };
 
   return (
@@ -55,7 +80,7 @@ export default function UrlAnalysisForm({ role }) {
       <p className="url-analysis-access">
         {role === "guest"
           ? "Aucun compte n’est nécessaire pour saisir une adresse. Le service d’analyse sera disponible prochainement."
-          : role === "viewer"
+          : role === "end_user" || role === "viewer"
             ? "Accès lecteur : vous pouvez préparer une adresse à vérifier."
             : "Votre espace est prêt pour l’analyse dès que le service sera disponible."}
       </p>

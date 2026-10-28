@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import * as authApi from "../api/auth";
 import { SESSION_EXPIRED_EVENT, tokenStore } from "../api/client";
+import { ApiError } from "../api/errors";
 import { useToast } from "./ToastContext";
 
 const AuthContext = createContext(null);
@@ -23,13 +24,15 @@ export function AuthProvider({ children }) {
     authApi
       .getMe(ac.signal)
       .then((me) => {
+        if (!me || typeof me !== "object" || !me.role) throw new ApiError("Session invalide", { status: 401 });
         setUser(me);
         setStatus("authenticated");
       })
       .catch((e) => {
         if (e?.name === "AbortError") return;
+        // 0 = réseau/TypeError (fetch rejeté) : serveur injoignable, on garde la session
         if (e?.status === 0) {
-          setStatus("offline"); // serveur injoignable : on ne détruit pas la session
+          setStatus("offline");
           return;
         }
         tokenStore.clear();
@@ -52,9 +55,11 @@ export function AuthProvider({ children }) {
 
   const login = useCallback(async ({ email, password }) => {
     const tokens = await authApi.login({ email: email.trim().toLowerCase(), password });
+    if (!tokens?.access) throw new ApiError("Session invalide", { status: 401 });
     tokenStore.set(tokens);
     try {
       const me = await authApi.getMe();
+      if (!me || typeof me !== "object" || !me.role) throw new ApiError("Session invalide", { status: 401 });
       setUser(me);
       setStatus("authenticated");
       return me;

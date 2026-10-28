@@ -15,11 +15,14 @@ import {
 } from "lucide-react";
 import { AUDIT_ACTIONS, ROLES } from "../../api/constants";
 
+// Clés = valeurs de Role.choices du backend : admin | analyst | end_user
+// ("viewer" n'existe pas côté backend ; on le garde comme alias défensif).
 export const ROLE_META = {
   admin: { icon: Crown, tone: "gold", desc: "Gère les comptes, les rôles et le journal d'audit." },
   analyst: { icon: Radar, tone: "info", desc: "Accès analyste aux modules de détection." },
-  viewer: { icon: Eye, tone: "neutral", desc: "Accès en lecture. Rôle attribué à l'inscription." },
+  end_user: { icon: Eye, tone: "neutral", desc: "Accès en lecture. Rôle attribué à l'inscription." },
 };
+ROLE_META.viewer = ROLE_META.end_user;
 
 export const ACTION_META = {
   register: { icon: UserPlus, tone: "info" },
@@ -38,7 +41,7 @@ const toneClass = (tone) => (tone && tone !== "neutral" ? `badge-${tone}` : "");
 
 export function RoleBadge({ role }) {
   const meta = ROLE_META[role] || { tone: "neutral" };
-  return <span className={`badge ${toneClass(meta.tone)}`}>{ROLES[role] || role}</span>;
+  return <span className={`badge ${toneClass(meta.tone)}`}>{ROLES[role]?.label || role}</span>;
 }
 
 export function StatusBadge({ active }) {

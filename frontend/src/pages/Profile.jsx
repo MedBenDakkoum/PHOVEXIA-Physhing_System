@@ -227,7 +227,7 @@ export default function Profile() {
           </p>
           <dl className="kv">
             <dt>Rôle</dt>
-            <dd>{ROLES[user.role]}</dd>
+            <dd>{ROLES[user.role]?.label || user.role}</dd>
             <dt>Membre depuis</dt>
             <dd>{formatDate(user.date_joined)}</dd>
             <dt>Identifiant</dt>

@@ -37,23 +37,24 @@ function greeting() {
 const LEAD = {
   admin: "Voici l'état de votre plateforme : comptes, connexions et activité récente.",
   analyst: "Collez une adresse web à vérifier et retrouvez vos outils d’analyse ici.",
-  viewer: "Vous disposez d'un accès en lecture. Un administrateur peut faire évoluer votre rôle.",
+  end_user: "Vous disposez d'un accès en lecture. Un administrateur peut faire évoluer votre rôle.",
 };
 
 function CommandBanner({ user }) {
-  const name = user.first_name || user.email.split("@")[0];
+  const name = user.first_name || (user.email ? user.email.split("@")[0] : "Utilisateur");
   const today = new Intl.DateTimeFormat("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date());
-  const RoleIcon = ROLE_META[user.role].icon;
+  const meta = ROLE_META[user.role] || ROLE_META.end_user;
+  const RoleIcon = meta.icon;
   return (
     <section className="command" aria-label="Accueil">
       <div>
         <h1 className="command-title">
           {greeting()}, {name}
         </h1>
-        <p className="command-lead">{LEAD[user.role]}</p>
+        <p className="command-lead">{LEAD[user.role] || LEAD.end_user}</p>
         <div className="command-meta">
           <span className="badge badge-nodot">
-            <RoleIcon size={14} aria-hidden="true" /> {ROLES[user.role]}
+            <RoleIcon size={14} aria-hidden="true" /> {ROLES[user.role]?.label || user.role}
           </span>
           <span className="command-date">{today.charAt(0).toUpperCase() + today.slice(1)}</span>
         </div>
@@ -247,9 +248,9 @@ function AdminOverview() {
           <div className="donut-wrap">
             <Donut
               slices={[
-                { label: ROLES.admin, value: byRole("admin"), color: "var(--gold)" },
-                { label: ROLES.analyst, value: byRole("analyst"), color: "var(--info)" },
-                { label: ROLES.viewer, value: byRole("viewer"), color: "var(--text-3)" },
+                { label: ROLES.admin?.label || ROLES.admin.key, value: byRole("admin"), color: "var(--gold)" },
+                { label: ROLES.analyst?.label || ROLES.analyst.key, value: byRole("analyst"), color: "var(--info)" },
+                { label: ROLES.end_user?.label || ROLES.end_user.key, value: byRole("end_user"), color: "var(--text-3)" },
               ]}
               centerValue={formatNumber(users.length)}
               centerLabel="comptes"
@@ -259,12 +260,12 @@ function AdminOverview() {
               {[
                 ["admin", "var(--gold)"],
                 ["analyst", "var(--info)"],
-                ["viewer", "var(--text-3)"],
+                ["end_user", "var(--text-3)"],
               ].map(([r, c]) => (
                 <li key={r} style={{ "--c": c }}>
                   <span className="lbl">
                     <i />
-                    {ROLES[r]}
+                    {ROLES[r]?.label || r}
                   </span>
                   <b className="tabular">{byRole(r)}</b>
                 </li>
@@ -355,7 +356,7 @@ function MemberOverview({ user }) {
         <div className="card-head">
           <div>
             <h2 className="card-title">Votre compte</h2>
-            <p className="card-sub">{ROLE_META[user.role].desc}</p>
+            <p className="card-sub">{(ROLE_META[user.role] || ROLE_META.end_user).desc}</p>
           </div>
           <RoleBadge role={user.role} />
         </div>

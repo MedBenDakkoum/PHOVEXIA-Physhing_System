@@ -78,7 +78,7 @@ export default function AppShell() {
             <Avatar user={user} />
             <div className="who">
               <strong className="truncate">{displayName(user)}</strong>
-              <span>{ROLES[user.role]}</span>
+              <span>{ROLES[user.role]?.label || user.role}</span>
             </div>
             <button className="icon-btn" onClick={onLogout} aria-label="Se déconnecter" title="Se déconnecter">
               <LogOut size={19} />
