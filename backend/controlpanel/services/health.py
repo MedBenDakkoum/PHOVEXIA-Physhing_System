@@ -16,7 +16,8 @@ from django.utils import timezone
 
 from scans.models import Scan
 
-from .model_versions import get_active_model_version_label
+from ..models import ModelVersion
+from .model_versions import get_active_model_version, get_active_model_version_label
 
 _BROKER_QUEUE = "celery"  # default Celery queue name on the broker DB
 _MESSAGE_MAX = 120
@@ -117,8 +118,33 @@ def check_active_model_version() -> dict:
     }
 
 
+def check_active_model() -> dict:
+    """US53 / BR-11 guard: WHICH model is serving, not just its label.
+
+    `value` always carries `kind` + `version` so an operator can tell at a
+    glance whether verdicts come from the real torch bundle or from the
+    deterministic MOCK. `ok` is False only when NOTHING is active.
+    """
+    version = get_active_model_version()
+    if version is None:
+        return {"ok": False, "message": "no active version", "value": None}
+    value = {"kind": version.kind, "version": version.version}
+    if version.kind == ModelVersion.Kind.TORCH_BUNDLE:
+        return {"ok": True, "message": f"{version.kind} {version.version}", "value": value}
+    return {
+        "ok": True,
+        "message": f"{version.kind} {version.version} (not the real model)",
+        "value": value,
+    }
+
+
 def build_health() -> dict:
-    """Run every check independently; the view must never fail."""
+    """Run every check independently; the view must never fail.
+
+    Overall status: "degraded" when any check is not ok; otherwise "warning"
+    when the active model is the MOCK (verdicts are deterministic hashes, not
+    the torch bundle); otherwise "ok".
+    """
     checks = {}
     for name, func in (
         ("database", check_database),
@@ -128,12 +154,18 @@ def build_health() -> dict:
         ("stuck_scans", check_stuck_scans),
         ("last_finished_scan", check_last_finished_scan),
         ("active_model_version", check_active_model_version),
+        ("active_model", check_active_model),
     ):
         try:
             checks[name] = func()
         except Exception as exc:  # noqa: BLE001 - defensive: never fail the request
             checks[name] = {"ok": False, "message": _err(exc), "value": None}
-    status = "ok" if all(item["ok"] for item in checks.values()) else "degraded"
+    if not all(item["ok"] for item in checks.values()):
+        status = "degraded"
+    else:
+        active = checks.get("active_model") or {}
+        kind = (active.get("value") or {}).get("kind")
+        status = "warning" if kind == ModelVersion.Kind.MOCK else "ok"
     return {
         "status": status,
         "checked_at": timezone.now().isoformat(),

@@ -354,6 +354,14 @@ def run_scan(scan_id: int) -> str | None:
 
         active = ModelVersion.objects.filter(is_active=True).first()
         if active is None or active.kind != ModelVersion.Kind.TORCH_BUNDLE:
+            # Guard against silent MOCK runs (E2E honesty): the verdict is a
+            # deterministic hash, NOT the torch bundle. Never log the URL.
+            logger.warning(
+                "run_scan: scan %s uses the MOCK path (active model: %s) - "
+                "NOT the real collector+inference pipeline",
+                scan_id,
+                f"{active.kind} {active.version}" if active else "none",
+            )
             return _run_mock_path(scan_id, scan.url, scan.mode)
         return _run_real_pipeline(scan_id, active, scan)
     except (CollectorError, InferenceError) as exc:

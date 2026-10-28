@@ -102,6 +102,10 @@ class ScanCreatedSerializer(serializers.Serializer):
     url = serializers.CharField(max_length=2048)
     status = serializers.CharField(max_length=20)
     detection_source = serializers.CharField(max_length=10)
+    # Always present (even "" right after creation): the client can always
+    # tell WHICH model will produce / produced the verdict, never a missing
+    # key. Empty until run_scan stamps the active ModelVersion (BR-11).
+    model_version = serializers.CharField(max_length=50, required=False, default="")
     created_at = serializers.DateTimeField()
     quota = QuotaSerializer()
 
@@ -134,10 +138,17 @@ class QuickCheckSerializer(serializers.Serializer):
 
 
 class QuickCheckCreatedSerializer(serializers.Serializer):
-    """Step 9 - 202 body: the anonymous scan reference, no other field."""
+    """Step 9 - 202 body: the anonymous scan reference + signals."""
 
     id = serializers.UUIDField()
     status = serializers.CharField(max_length=20)
+    # Always present ("" until run_scan stamps it): never a missing key.
+    model_version = serializers.CharField(max_length=50, required=False, default="")
+    ssl = serializers.BooleanField(required=False, default=False)
+    tld = serializers.CharField(required=False, allow_blank=True)
+    domain = serializers.CharField(required=False, allow_blank=True)
+    subdomain = serializers.CharField(required=False, allow_blank=True, default="")
+    final_url = serializers.CharField(required=False, allow_blank=True)
 
 
 class QuickCheckResultSerializer(serializers.ModelSerializer):

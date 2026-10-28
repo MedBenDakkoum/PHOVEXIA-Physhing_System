@@ -541,6 +541,58 @@ def test_public_health_is_minimal_and_admin_health_reports_failures_without_cras
     assert check_stuck_scans()["ok"] is True
 
 
+@pytest.mark.django_db
+def test_health_active_model_reports_kind_and_version_and_warns_on_mock(
+    admin_client, monkeypatch
+):
+    """US53 / BR-11 guard: never let a MOCK verdict look like the real model.
+
+    `active_model` always returns kind + version; the overall status is
+    "warning" while the MOCK is active and "ok" once the bundle is.
+    """
+    # Isolate the model signal: redis/celery are stubbed OK so only the
+    # active model can change the overall status.
+    monkeypatch.setattr(
+        "controlpanel.services.health.check_redis",
+        lambda: {"ok": True, "message": "ok", "value": None},
+    )
+    monkeypatch.setattr(
+        "controlpanel.services.health.check_celery",
+        lambda: {"ok": True, "message": "1 worker(s)", "value": 1},
+    )
+    monkeypatch.setattr(
+        "controlpanel.services.health.check_queue_length",
+        lambda: {"ok": True, "message": "0 message(s)", "value": 0},
+    )
+
+    # The 0001 migration seeds an active MOCK "mock-0".
+    resp = admin_client.get(ADMIN_HEALTH_URL)
+    assert resp.status_code == http_status.HTTP_200_OK
+    active = resp.data["checks"]["active_model"]
+    assert active["ok"] is True
+    assert active["value"] == {"kind": "MOCK", "version": "mock-0"}
+    assert resp.data["status"] == "warning"
+
+    # One active TORCH_BUNDLE (BR-11: deactivate the mock first).
+    ModelVersion.objects.filter(is_active=True).update(is_active=False)
+    ModelVersion.objects.create(
+        name="torch-bundle",
+        version="2026-10-25",
+        kind=ModelVersion.Kind.TORCH_BUNDLE,
+        is_active=True,
+    )
+    resp = admin_client.get(ADMIN_HEALTH_URL)
+    active = resp.data["checks"]["active_model"]
+    assert active["value"] == {"kind": "TORCH_BUNDLE", "version": "2026-10-25"}
+    assert resp.data["status"] == "ok"
+
+    # Nothing active at all -> the check itself fails (degraded, not warning).
+    ModelVersion.objects.filter(is_active=True).update(is_active=False)
+    resp = admin_client.get(ADMIN_HEALTH_URL)
+    assert resp.data["checks"]["active_model"]["ok"] is False
+    assert resp.data["status"] == "degraded"
+
+
 # --- US54: API keys ----------------------------------------------------------
 
 
