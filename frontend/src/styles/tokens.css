@@ -9,6 +9,7 @@
   /* Surfaces */
   --bg: #070c22;
   --bg-2: #0a1130;
+  --surface-2: #0f1738;
   --panel: rgba(19, 28, 68, 0.66);
   --panel-solid: #111a40;
   --panel-raised: #172254;
@@ -57,6 +58,7 @@
 
   --bg: #e9eefa;
   --bg-2: #f3f6fd;
+  --surface-2: #eef3ff;
   --panel: rgba(255, 255, 255, 0.82);
   --panel-solid: #ffffff;
   --panel-raised: #f5f8ff;

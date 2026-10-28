@@ -75,6 +75,18 @@ export const DECISION_VALUES = Object.keys(DECISION);
 export const REPORT_STATUS = { open: "Ouvert", resolved: "Résolu" };
 export const REPORT_STATUS_VALUES = Object.keys(REPORT_STATUS);
 
+export const BLOCKLIST_REASON = {
+  confirmed_phishing: "Phishing confirmé",
+  campaign: "Campagne",
+  manual: "Manuel",
+};
+export const BLOCKLIST_REASON_VALUES = Object.keys(BLOCKLIST_REASON);
+
+export const REVIEW_SOURCE = {
+  uncertain: "Incertain",
+  reported: "Signalé",
+};
+
 export const MODEL_VERSION_KIND = { MOCK: "Mock", ONNX: "ONNX", TORCH_BUNDLE: "Torch bundle" };
 export const MODEL_VERSION_KIND_VALUES = Object.keys(MODEL_VERSION_KIND);
 
@@ -127,18 +139,24 @@ export const ENDPOINTS = {
   user: (id) => `/api/auth/users/${id}/`,
   scans: "/api/scans/",
   scan: (id) => `/api/scans/${id}/`,
+  scanScreenshot: (id) => `/api/scans/${id}/screenshot/`,
   scanRescan: (id) => `/api/scans/${id}/rescan/`,
   scanNotes: (id) => `/api/scans/${id}/notes/`,
-  scanReport: (id) => `/api/scans/${id}/reports/`,
+  scanReport: (id) => `/api/scans/${id}/report/`,
   quickCheck: "/api/quick-check/",
   quickCheckDetail: (id) => `/api/quick-check/${id}/`,
   blocklist: "/api/blocklist/",
   blocklistEntry: (id) => `/api/blocklist/${id}/`,
   blocklistExport: "/api/blocklist/export/",
+  brands: "/api/brands/",
+  brand: (id) => `/api/brands/${id}/`,
   campaigns: "/api/campaigns/",
   campaign: (id) => `/api/campaigns/${id}/`,
-  reviews: "/api/reviews/",
-  reviewDecision: (id) => `/api/reviews/${id}/decision/`,
+  reviewQueue: "/api/review/queue/",
+  review: (id) => `/api/review/${id}/`,
+  reviewDecision: (id) => `/api/review/${id}/decision/`,
+  reviewNotes: (id) => `/api/review/${id}/notes/`,
+  reviewRescan: (id) => `/api/review/${id}/rescan/`,
   auditLogs: "/api/audit/logs/",
   auditLog: (id) => `/api/audit/logs/${id}/`,
   notifications: "/api/notifications/",
@@ -147,9 +165,12 @@ export const ENDPOINTS = {
   adminModels: "/api/admin/models/",
   adminModel: (id) => `/api/admin/models/${id}/`,
   adminModelActivate: (id) => `/api/admin/models/${id}/activate/`,
+  adminModelRollback: "/api/admin/models/rollback/",
+  adminModelCompare: "/api/admin/models/compare/",
   adminDashboard: "/api/admin/dashboard/",
   adminHealth: "/api/admin/health/",
   adminApiKeys: "/api/admin/api-keys/",
+  adminApiKey: (id) => `/api/admin/api-keys/${id}/`,
   docs: "/api/docs/",
   schema: "/api/schema/",
   health: "/api/health/",
