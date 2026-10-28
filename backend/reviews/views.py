@@ -80,7 +80,9 @@ def _conflict(code: str, detail: str) -> Response:
 
 def _review_detail_queryset():
     """One scan with its report, notes and review info, without N+1."""
-    return Scan.objects.select_related("owner", "reviewed_by").prefetch_related(
+    return annotate_report_flags(
+        Scan.objects.select_related("owner", "reviewed_by")
+    ).prefetch_related(
         Prefetch(
             "reports",
             queryset=Report.objects.select_related("reporter").order_by("-created_at"),
