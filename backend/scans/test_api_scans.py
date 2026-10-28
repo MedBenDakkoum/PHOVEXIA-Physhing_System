@@ -118,7 +118,17 @@ def test_post_returns_202_with_scan_and_quota(auth_client, viewer):
     resp = auth_client.post(reverse(SCAN_LIST), {"url": VALID_URL}, format="json")
 
     assert resp.status_code == http_status.HTTP_202_ACCEPTED
-    assert set(resp.data) == {"id", "url", "status", "detection_source", "created_at", "quota"}
+    assert set(resp.data) == {
+        "id",
+        "url",
+        "status",
+        "detection_source",
+        # Guard: always present, "" until run_scan stamps the active version.
+        "model_version",
+        "created_at",
+        "quota",
+    }
+    assert resp.data["model_version"] == ""
     assert set(resp.data["quota"]) == {"limit", "used", "remaining", "reset_at"}
     assert resp.data["url"] == VALID_URL
     assert resp.data["status"] == Scan.Status.SUBMITTED

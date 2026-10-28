@@ -305,6 +305,7 @@ class ScanListCreateView(generics.ListCreateAPIView):
             "url": scan.url,
             "status": scan.status,
             "detection_source": scan.detection_source,
+            "model_version": scan.model_version,
             "created_at": scan.created_at,
             "quota": {
                 "limit": quota.limit,
@@ -525,7 +526,16 @@ class QuickCheckView(generics.GenericAPIView):
         except InvalidURL as exc:
             return Response(_url_error(exc), status=status.HTTP_400_BAD_REQUEST)
 
-        payload = {"id": scan.public_id, "status": scan.status}
+        payload = {
+            "id": scan.public_id,
+            "status": scan.status,
+            "model_version": scan.model_version,
+            "ssl": validated.scheme == "https",
+            "tld": validated.host.split(".")[-1] if "." in validated.host else "",
+            "domain": validated.host,
+            "subdomain": ".".join(validated.host.split(".")[:-2]) if validated.host.count(".") > 1 else "",
+            "final_url": validated.url,
+        }
         return Response(
             QuickCheckCreatedSerializer(payload).data,
             status=status.HTTP_202_ACCEPTED,

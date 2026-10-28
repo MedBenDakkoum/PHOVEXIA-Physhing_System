@@ -215,6 +215,63 @@ def test_active_mock_version_still_uses_the_mock_path(monkeypatch):
     assert calls.collector == [] and calls.inference == []
 
 
+@pytest.mark.django_db
+def test_mock_path_logs_a_clear_warning_never_the_url(monkeypatch, caplog):
+    """Guard: a MOCK run must be obvious in the worker log (E2E honesty)."""
+    import logging
+
+    calls = SimpleNamespace(collector=[], inference=[])
+    install_collector(monkeypatch, calls=calls.collector)
+    install_inference(monkeypatch, calls=calls.inference)
+    scan = make_scan(make_user())
+
+    with caplog.at_level(logging.WARNING, logger="scans.tasks"):
+        run_scan(scan.pk)
+
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert warnings, "the MOCK path must emit a WARNING"
+    message = warnings[0].getMessage()
+    assert "MOCK path" in message
+    assert "NOT the real collector+inference pipeline" in message
+    assert VALID_URL not in message  # never a URL in the log
+
+
+@pytest.mark.django_db
+def test_real_pipeline_does_not_log_the_mock_warning(
+    monkeypatch, caplog, media_root
+):
+    import logging
+
+    calls = SimpleNamespace(collector=[], inference=[])
+    install_collector(
+        monkeypatch, response=capture(), calls=calls.collector
+    )
+    install_inference(monkeypatch, response=inference(), calls=calls.inference)
+    make_bundle(version="bundle-1")
+    scan = make_scan(make_user())
+
+    with caplog.at_level(logging.WARNING, logger="scans.tasks"):
+        run_scan(scan.pk)
+
+    assert not [
+        r for r in caplog.records if "MOCK path" in r.getMessage()
+    ], "the real pipeline must never log the MOCK warning"
+
+
+@pytest.mark.django_db
+def test_model_version_is_always_present_in_the_scan_detail():
+    """Guard: the key is never missing, even before the prediction ran."""
+    owner = make_user("mv@example.com")
+    scan = make_scan(owner)  # SUBMITTED, no verdict yet: model_version ""
+    client = APIClient()
+    client.force_authenticate(owner)
+
+    resp = client.get(reverse(SCAN_DETAIL, args=[scan.public_id]))
+    assert resp.status_code == http_status.HTTP_200_OK
+    assert "model_version" in resp.data
+    assert resp.data["model_version"] == ""
+
+
 # --- real pipeline happy path (US20 / US26) ---------------------------------
 
 

@@ -61,7 +61,18 @@ def test_post_creates_an_anonymous_fast_scan_and_returns_202(api_client):
     resp = submit(api_client)
 
     assert resp.status_code == http_status.HTTP_202_ACCEPTED
-    assert set(resp.data) == {"id", "status"}
+    assert set(resp.data) == {
+        "id",
+        "status",
+        # Guard: always present, "" until run_scan stamps the active version.
+        "model_version",
+        "ssl",
+        "tld",
+        "domain",
+        "subdomain",
+        "final_url",
+    }
+    assert resp.data["model_version"] == ""
     assert resp.data["status"] == Scan.Status.SUBMITTED
 
     scan = Scan.objects.get(public_id=resp.data["id"])
