@@ -20,7 +20,7 @@ COPY app ./app
 USER pwuser
 
 EXPOSE 8000
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
 
 # One-shot test image: same runtime + pytest stack + fixtures (no publish).
 FROM base AS test

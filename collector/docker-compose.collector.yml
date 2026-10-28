@@ -18,6 +18,9 @@ services:
     build:
       context: ../collector
       dockerfile: Dockerfile
+      # Without an explicit target, `docker build` takes the LAST stage
+      # (test = pytest CMD); the service must run the uvicorn base stage.
+      target: base
     image: phish360-collector:local
     env_file:
       - ../collector/collector.env
