@@ -86,6 +86,10 @@ class Scan(models.Model):
     )
     partial = models.BooleanField("Partial result", default=False)
     reason_code = models.CharField("Reason code", max_length=64, blank=True, default="")
+    # ISO-6.5: number of the current/last attempt (0 = first run). Retries are
+    # scheduled by the task with a countdown; this counter makes a duplicate
+    # delivery of attempt N a no-op instead of a parallel run.
+    retry_count = models.PositiveSmallIntegerField("Retry count", default=0)
     # US20: relative path under MEDIA_ROOT (screenshots/<public_id>.png), or
     # empty when none was captured or it failed validation.
     screenshot_path = models.CharField(

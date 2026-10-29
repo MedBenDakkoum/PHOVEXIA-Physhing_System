@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowRight, History, Link2, ShieldAlert } from "lucide-react";
 import { createScan, getScanQuota } from "../api/scans";
 import Button from "../components/ui/Button";
@@ -27,8 +27,11 @@ function validateUrl(raw) {
 export default function ScanNew() {
   useDocumentTitle("Nouveau scan");
   const navigate = useNavigate();
-  const [url, setUrl] = useState("");
-  const [error, setError] = useState("");
+  const [searchParams] = useSearchParams();
+  const relaunchUrl = searchParams.get("url") || "";
+  const [url, setUrl] = useState(relaunchUrl);
+  const [fieldError, setFieldError] = useState("");
+  const [formError, setFormError] = useState("");
   const [quota, setQuota] = useState(null);
   const [quotaError, setQuotaError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -52,14 +55,15 @@ export default function ScanNew() {
 
   const submit = async (event) => {
     event.preventDefault();
-    setError("");
+    setFieldError("");
+    setFormError("");
     const validation = validateUrl(url);
     if (validation) {
-      setError(validation);
+      setFieldError(validation);
       return;
     }
     if (quota && quota.remaining <= 0) {
-      setError("Quota quotidien épuisé. Patientez jusqu'à la réinitialisation.");
+      setFormError("Quota quotidien épuisé. Patientez jusqu'à la réinitialisation.");
       return;
     }
     setSubmitting(true);
@@ -69,9 +73,9 @@ export default function ScanNew() {
     } catch (err) {
       if (err?.status === 429) {
         setRetryIn(err.retryAfter || 60);
-        setError(err.message || "Quota atteint. Patientez avant de réessayer.");
+        setFormError(err.message || "Quota atteint. Patientez avant de réessayer.");
       } else {
-        setError(err?.message || "La demande d'analyse a échoué.");
+        setFormError(err?.message || "La demande d'analyse a échoué.");
       }
     } finally {
       setSubmitting(false);
@@ -106,6 +110,14 @@ export default function ScanNew() {
           </div>
 
           <form onSubmit={submit} noValidate data-testid="scan-form">
+            {relaunchUrl && (
+              <div className="alert alert-info" role="status" style={{ marginBottom: 16 }}>
+                <ShieldAlert size={18} />
+                <span>
+                  Relance de l'adresse existante. Ce nouveau scan décompte 1 de votre quota.
+                </span>
+              </div>
+            )}
             <TextField
               label="URL à analyser"
               type="url"
@@ -114,9 +126,10 @@ export default function ScanNew() {
               value={url}
               onChange={(event) => {
                 setUrl(event.target.value);
-                setError("");
+                setFieldError("");
+                setFormError("");
               }}
-              error={error}
+              error={fieldError}
               hint="Adresse http:// ou https:// uniquement, 2048 caractères maximum."
               icon={Link2}
               autoComplete="url"
@@ -143,10 +156,10 @@ export default function ScanNew() {
             </div>
           </form>
 
-          {error && (
+          {formError && (
             <div className="alert alert-error" role="alert" style={{ marginTop: 16 }} data-testid="scan-error">
               <ShieldAlert size={18} />
-              <span>{error}</span>
+              <span>{formError}</span>
             </div>
           )}
 

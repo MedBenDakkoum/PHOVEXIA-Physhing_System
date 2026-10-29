@@ -2,7 +2,10 @@
 
 POST /predict multipart: url, text, ssl, tld, subdomain + screenshot file.
 Returns a validated shape: the 4 base probabilities + the fusion probability.
-Any failure is an infrastructure failure retried by the Celery task.
+Every infrastructure/protocol failure is mapped to ONE stable code,
+INFERENCE_UNAVAILABLE, with a technical `detail` for error_message; the Celery
+task retries with a countdown (never a sleep inside the worker) and only ends
+the scan FAILED once its attempts are exhausted.
 
 Never log request bodies or the shared API key.
 """
@@ -31,14 +34,24 @@ _FRIENDLY_KEYS = ("url", "page_text", "screenshot", "metadata")
 class InferenceError(Exception):
     """Infrastructure or protocol failure talking to the inference service.
 
-    `reason` is a short, safe code (no stack trace, no secret) stored on the
-    scan as error_message / reason_code.
+    `reason` is the stable INFERENCE_UNAVAILABLE code (or
+    INFERENCE_NOT_CONFIGURED). `detail` keeps the technical context for
+    error_message (never a URL, a body or a secret).
     """
 
-    def __init__(self, reason: str, status_code: int | None = None):
+    def __init__(
+        self,
+        reason: str,
+        status_code: int | None = None,
+        *,
+        retryable: bool = False,
+        detail: str = "",
+    ):
         self.reason = reason
         self.status_code = status_code
-        super().__init__(reason)
+        self.retryable = retryable
+        self.detail = detail
+        super().__init__(f"{reason}: {detail}" if detail else reason)
 
 
 class InferenceResponse:
@@ -46,10 +59,18 @@ class InferenceResponse:
 
     def __init__(self, data: dict[str, Any]):
         if data.get("status") not in ("complete", "uncertain"):
-            raise InferenceError("INFERENCE_BAD_SHAPE")
+            raise InferenceError(
+                "INFERENCE_UNAVAILABLE",
+                retryable=True,
+                detail="invalid predict payload (status)",
+            )
         base = data.get("base_probabilities") or {}
         if not isinstance(base, dict):
-            raise InferenceError("INFERENCE_BAD_SHAPE")
+            raise InferenceError(
+                "INFERENCE_UNAVAILABLE",
+                retryable=True,
+                detail="invalid predict payload (base_probabilities)",
+            )
         self.status: str = data["status"]
         self.partial: bool = bool(data.get("partial", False))
         self.prediction: str | None = data.get("prediction")
@@ -82,7 +103,10 @@ class InferenceClient:
         subdomain: str | None,
     ) -> InferenceResponse:
         if not self.base_url:
-            raise InferenceError("INFERENCE_NOT_CONFIGURED")
+            raise InferenceError(
+                "INFERENCE_NOT_CONFIGURED",
+                detail="INFERENCE_URL is empty",
+            )
         fields: dict[str, Any] = {
             "url": (None, url),
             "text": (None, text or ""),
@@ -93,7 +117,11 @@ class InferenceClient:
         files: dict[str, Any] | None = None
         if screenshot_png is not None:
             if len(screenshot_png) > MAX_UPLOAD_BYTES:
-                raise InferenceError("INFERENCE_SCREENSHOT_TOO_LARGE")
+                raise InferenceError(
+                    "INFERENCE_UNAVAILABLE",
+                    retryable=True,
+                    detail="screenshot too large",
+                )
             files = {
                 "screenshot": ("screenshot.png", screenshot_png, "image/png")
             }
@@ -105,17 +133,33 @@ class InferenceClient:
                 timeout=self.timeout,
                 allow_redirects=False,
             )
+        except requests.exceptions.Timeout as exc:
+            raise InferenceError(
+                "INFERENCE_UNAVAILABLE",
+                retryable=True,
+                detail=f"timeout after {self.timeout:g}s",
+            ) from exc
         except requests.exceptions.RequestException as exc:
-            raise InferenceError("INFERENCE_UNREACHABLE") from exc
+            raise InferenceError(
+                "INFERENCE_UNAVAILABLE",
+                retryable=True,
+                detail=type(exc).__name__,
+            ) from exc
         if resp.status_code != 200:
             raise InferenceError(
-                f"INFERENCE_HTTP_{resp.status_code}",
+                "INFERENCE_UNAVAILABLE",
                 status_code=resp.status_code,
+                retryable=resp.status_code >= 500 or resp.status_code == 429,
+                detail=f"HTTP {resp.status_code}",
             )
         try:
             data = self._bounded_json(resp)
         except (ValueError, KeyError, TypeError) as exc:
-            raise InferenceError("INFERENCE_BAD_SHAPE") from exc
+            raise InferenceError(
+                "INFERENCE_UNAVAILABLE",
+                retryable=True,
+                detail="invalid JSON",
+            ) from exc
         return InferenceResponse(data)
 
     def _bounded_json(self, resp: requests.Response) -> dict[str, Any]:
@@ -126,6 +170,10 @@ class InferenceClient:
                 continue
             total += len(chunk)
             if total > MAX_RESPONSE_BYTES:
-                raise InferenceError("INFERENCE_RESPONSE_TOO_LARGE")
+                raise InferenceError(
+                    "INFERENCE_UNAVAILABLE",
+                    retryable=True,
+                    detail="response too large",
+                )
             chunks.append(chunk)
         return json.loads(b"".join(chunks).decode("utf-8"))

@@ -472,6 +472,7 @@ def test_list_item_fields_are_read_only_projection(auth_client, viewer):
         "reason_code",
         "signals",
         "probabilities",
+        "has_screenshot",
         "created_at",
         "finished_at",
         # Step 10 (US31/US34): owner-facing review flags, never the analyst.
@@ -531,6 +532,7 @@ def test_detail_owner_can_read_his_scan(auth_client, viewer):
         "reason_code",
         "signals",
         "probabilities",
+        "has_screenshot",
         "created_at",
         "finished_at",
         # Step 10 (US31/US34): owner-facing review flags, never the analyst.

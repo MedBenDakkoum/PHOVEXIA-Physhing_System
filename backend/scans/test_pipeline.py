@@ -396,55 +396,166 @@ def test_inference_uncertain_partial_stays_detected_with_friendly_probabilities(
     assert scan.probabilities["page_text"] == pytest.approx(0.88)
 
 
-# --- infrastructure failures (US28 / ISO-6.5) -------------------------------
+# --- infrastructure failures (US28 / US26 / ISO-6.5) ------------------------
+
+
+def _record_schedule(monkeypatch):
+    """Capture retries instead of queuing (eager Celery would recurse)."""
+    scheduled = []
+
+    def fake_schedule(scan_id, attempt, delay):
+        scheduled.append((scan_id, attempt, delay))
+
+    monkeypatch.setattr("scans.tasks.schedule_scan_attempt", fake_schedule)
+    return scheduled
 
 
 @pytest.mark.django_db
-def test_collector_unreachable_is_retried_then_failed(monkeypatch):
-    monkeypatch.setattr("scans.tasks.time.sleep", lambda *a, **k: None)
+def test_busy_collector_keeps_the_scan_analyzing_and_schedules_a_retry(
+    monkeypatch, django_capture_on_commit_callbacks
+):
+    scheduled = _record_schedule(monkeypatch)
     calls = SimpleNamespace(collector=[])
     install_collector(
         monkeypatch,
-        error=CollectorError("COLLECTOR_UNREACHABLE"),
+        error=CollectorError("COLLECTOR_BUSY", status_code=503, retryable=True),
         calls=calls.collector,
     )
     make_bundle(version="bundle-1")
     scan = make_scan(make_user())
 
-    run_scan(scan.pk)
+    with django_capture_on_commit_callbacks(execute=True):
+        assert run_scan(scan.pk) is None
 
     scan.refresh_from_db()
-    assert scan.status == Scan.Status.FAILED
-    assert scan.reason_code == "COLLECTOR_UNREACHABLE"
-    assert scan.error_message == "COLLECTOR_UNREACHABLE"
-    # 1 attempt + 2 retries.
-    assert len(calls.collector) == 3
+    assert scan.status == Scan.Status.ANALYZING
+    assert scan.retry_count == 1
+    assert scan.reason_code == "COLLECTOR_BUSY"
+    assert "CollectorError" in scan.error_message
+    assert scan.finished_at is None
+    # A busy collector is retried, not turned into a FAILED scan.
+    assert scheduled == [(scan.pk, 1, 5)]
+    assert len(calls.collector) == 1
 
 
 @pytest.mark.django_db
-def test_inference_unreachable_is_retried_then_failed(monkeypatch):
-    monkeypatch.setattr("scans.tasks.time.sleep", lambda *a, **k: None)
+def test_second_attempt_succeeds_after_a_busy_first_attempt(
+    monkeypatch, django_capture_on_commit_callbacks, media_root
+):
+    _record_schedule(monkeypatch)
+    make_bundle(version="bundle-1")
+    scan = make_scan(make_user())
+
+    install_collector(
+        monkeypatch,
+        error=CollectorError("COLLECTOR_BUSY", status_code=503, retryable=True),
+    )
+    with django_capture_on_commit_callbacks(execute=True):
+        run_scan(scan.pk)
+
+    install_collector(monkeypatch, response=capture())
+    install_inference(monkeypatch, response=inference())
+    with django_capture_on_commit_callbacks(execute=True):
+        assert run_scan(scan.pk, 1) == Scan.Status.DETECTED
+
+    scan.refresh_from_db()
+    assert scan.status == Scan.Status.DETECTED
+    assert scan.retry_count == 1
+    assert scan.reason_code == ""
+    assert scan.error_message is None
+    assert scan.screenshot_path
+
+
+@pytest.mark.django_db
+def test_retry_is_idempotent_when_the_message_is_delivered_twice(
+    monkeypatch, django_capture_on_commit_callbacks
+):
+    _record_schedule(monkeypatch)
+    calls = SimpleNamespace(collector=[])
+    install_collector(
+        monkeypatch,
+        error=CollectorError("COLLECTOR_BUSY", retryable=True),
+        calls=calls.collector,
+    )
+    make_bundle(version="bundle-1")
+    scan = make_scan(make_user())
+    with django_capture_on_commit_callbacks(execute=True):
+        run_scan(scan.pk)
+
+    # Duplicate delivery of the attempt: it may run once and schedule the next
+    # one, then a late redelivery of the same attempt must be a no-op.
+    install_collector(monkeypatch, error=CollectorError("COLLECTOR_BUSY", retryable=True))
+    with django_capture_on_commit_callbacks(execute=True):
+        run_scan(scan.pk, 1)
+    scan.refresh_from_db()
+    assert scan.retry_count == 2
+    calls.collector.clear()
+    # A late duplicate of attempt 1 finds retry_count=2: no-op.
+    with django_capture_on_commit_callbacks(execute=True):
+        assert run_scan(scan.pk, 1) is None
+    assert calls.collector == []
+
+
+@pytest.mark.django_db
+def test_collector_unavailable_exhausts_all_attempts_then_fails(
+    monkeypatch, django_capture_on_commit_callbacks
+):
+    scheduled = _record_schedule(monkeypatch)
+    calls = SimpleNamespace(collector=[])
+    install_collector(
+        monkeypatch,
+        error=CollectorError("COLLECTOR_UNAVAILABLE", retryable=True),
+        calls=calls.collector,
+    )
+    make_bundle(version="bundle-1")
+    scan = make_scan(make_user())
+
+    for attempt in range(5):
+        with django_capture_on_commit_callbacks(execute=True):
+            result = run_scan(scan.pk, attempt)
+        if attempt < 4:
+            assert result is None
+
+    scan.refresh_from_db()
+    assert scan.status == Scan.Status.FAILED
+    assert scan.reason_code == "COLLECTOR_UNAVAILABLE"
+    assert "CollectorError" in scan.error_message
+    assert len(calls.collector) == 5
+    assert scheduled == [
+        (scan.pk, 1, 5),
+        (scan.pk, 2, 15),
+        (scan.pk, 3, 30),
+        (scan.pk, 4, 60),
+    ]
+
+
+@pytest.mark.django_db
+def test_inference_unavailable_retries_then_fails_with_a_stable_code(
+    monkeypatch, django_capture_on_commit_callbacks
+):
+    _record_schedule(monkeypatch)
     calls = SimpleNamespace(inference=[])
     install_collector(monkeypatch, response=capture())
     install_inference(
         monkeypatch,
-        error=InferenceError("INFERENCE_UNREACHABLE"),
+        error=InferenceError("INFERENCE_UNAVAILABLE", retryable=True),
         calls=calls.inference,
     )
     make_bundle(version="bundle-1")
     scan = make_scan(make_user())
 
-    run_scan(scan.pk)
+    for attempt in range(5):
+        with django_capture_on_commit_callbacks(execute=True):
+            run_scan(scan.pk, attempt)
 
     scan.refresh_from_db()
     assert scan.status == Scan.Status.FAILED
-    assert scan.reason_code == "INFERENCE_UNREACHABLE"
-    assert len(calls.inference) == 3
+    assert scan.reason_code == "INFERENCE_UNAVAILABLE"
+    assert len(calls.inference) == 5
 
 
 @pytest.mark.django_db
 def test_model_bundle_version_mismatch_fails_without_retry(monkeypatch):
-    monkeypatch.setattr("scans.tasks.time.sleep", lambda *a, **k: None)
     calls = SimpleNamespace(inference=[])
     install_collector(monkeypatch, response=capture())
     install_inference(
@@ -630,36 +741,66 @@ def test_sync_model_version_fails_closed_when_inference_is_down(monkeypatch):
 
 
 class _FakeSession:
-    def __init__(self, *, status_code=200, body=b"{}", headers=None):
+    def __init__(self, *, status_code=200, body=b"{}", headers=None, json_body=None):
         self._status_code = status_code
         self._body = body
+        self._json_body = json_body
         self.headers = headers or {}
 
     def post(self, *a, **k):
-        return _FakeRawResponse(self._status_code, self._body)
+        return _FakeRawResponse(self._status_code, self._body, self._json_body)
 
 
 class _FakeRawResponse:
-    def __init__(self, status_code, body):
+    def __init__(self, status_code, body, json_body=None):
         self.status_code = status_code
         self._body = body
+        self._json_body = json_body
 
     def iter_content(self, chunk_size=65536):
         yield self._body
 
+    def json(self):
+        if self._json_body is None:
+            raise ValueError("no JSON body")
+        return self._json_body
 
-def test_collector_client_refuses_5xx_and_bad_shape(settings):
+
+def test_collector_client_maps_5xx_busy_timeout_and_bad_shape(settings):
     settings.COLLECTOR_URL = "http://collector:8000"
     client = CollectorClient()
     client._session = _FakeSession(status_code=500)
     with pytest.raises(CollectorError) as exc:
         client.collect("https://example.com/")
-    assert exc.value.reason == "COLLECTOR_HTTP_500"
+    assert exc.value.reason == "COLLECTOR_UNAVAILABLE"
+    assert exc.value.retryable is True
+    assert exc.value.status_code == 500
+
+    client._session = _FakeSession(
+        status_code=503, json_body={"code": "busy", "detail": "full"}
+    )
+    with pytest.raises(CollectorError) as exc:
+        client.collect("https://example.com/")
+    assert exc.value.reason == "COLLECTOR_BUSY"
+    assert exc.value.retryable is True
+
+    class _TimeoutSession:
+        def post(self, *a, **k):
+            import requests
+
+            raise requests.exceptions.Timeout("slow")
+
+    client._session = _TimeoutSession()
+    with pytest.raises(CollectorError) as exc:
+        client.collect("https://example.com/")
+    assert exc.value.reason == "COLLECTOR_TIMEOUT"
+    assert exc.value.retryable is True
 
     client._session = _FakeSession(status_code=200, body=b"not json")
     with pytest.raises(CollectorError) as exc:
         client.collect("https://example.com/")
-    assert exc.value.reason == "COLLECTOR_BAD_SHAPE"
+    assert exc.value.reason == "COLLECTOR_UNAVAILABLE"
+    assert "invalid JSON" in exc.value.detail
 
 
 def test_inference_client_refuses_missing_bundle_and_bad_shape(settings):
@@ -676,4 +817,30 @@ def test_inference_client_refuses_missing_bundle_and_bad_shape(settings):
             tld="com",
             subdomain="",
         )
-    assert exc.value.reason == "INFERENCE_BAD_SHAPE"
+    assert exc.value.reason == "INFERENCE_UNAVAILABLE"
+    assert exc.value.retryable is True
+
+
+# --- has_screenshot (US20 / ISO-6.6) ----------------------------------------
+
+
+@pytest.mark.django_db
+def test_has_screenshot_is_true_only_when_the_file_exists(media_root):
+    owner = make_user("shot@example.com")
+    scan = make_scan(owner)
+    path, _raw = prepare_screenshot(scan.public_id, PNG_B64)
+    scan.screenshot_path = path
+    scan.save(update_fields=["screenshot_path"])
+
+    client = APIClient()
+    client.force_authenticate(owner)
+    resp = client.get(reverse(SCAN_DETAIL, args=[scan.public_id]))
+    assert resp.data["has_screenshot"] is True
+    assert "screenshot_path" not in resp.data
+
+    # A stale path (file deleted / never written) must not trigger a 404 client
+    # call: the flag is false and the path stays hidden.
+    scan.screenshot_path = f"screenshots/{scan.public_id}-missing.png"
+    scan.save(update_fields=["screenshot_path"])
+    resp = client.get(reverse(SCAN_DETAIL, args=[scan.public_id]))
+    assert resp.data["has_screenshot"] is False
