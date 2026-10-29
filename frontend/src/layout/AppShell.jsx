@@ -1,6 +1,26 @@
 import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { Activity, BadgeCheck, Bell, BookOpen, ChevronDown, Cpu, ExternalLink, Inbox, KeyRound, LayoutDashboard, LogOut, Menu as MenuIcon, ScrollText, ShieldBan, SlidersHorizontal, UserRound, Users } from "lucide-react";
+import {
+  Activity,
+  BadgeCheck,
+  Bell,
+  BookOpen,
+  ChevronDown,
+  Cpu,
+  ExternalLink,
+  History,
+  Inbox,
+  KeyRound,
+  LayoutDashboard,
+  LogOut,
+  Menu as MenuIcon,
+  Plus,
+  ScrollText,
+  ShieldBan,
+  SlidersHorizontal,
+  UserRound,
+  Users,
+} from "lucide-react";
 import { ENDPOINTS, ROLES } from "../api/constants";
 import { listNotifications } from "../api/notifications";
 import { useAuth } from "../context/AuthContext";
@@ -13,6 +33,8 @@ import { displayName } from "../utils/format";
 
 const MAIN_NAV = [
   { to: "/app", label: "Tableau de bord", icon: LayoutDashboard, end: true },
+  { to: "/scans", label: "Mes scans", icon: History },
+  { to: "/scans/new", label: "Nouveau scan", icon: Plus },
   { to: "/notifications", label: "Notifications", icon: Bell },
   { to: "/app/profile", label: "Mon profil", icon: UserRound },
 ];
@@ -31,6 +53,8 @@ const ADMIN_NAV = [
 ];
 const TITLES = {
   "/app": "Tableau de bord",
+  "/scans": "Mes scans",
+  "/scans/new": "Nouveau scan",
   "/app/profile": "Mon profil",
   "/notifications": "Notifications",
   "/review": "File de revue",

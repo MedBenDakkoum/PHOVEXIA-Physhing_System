@@ -18,6 +18,8 @@ import Register from "./pages/Register";
 import ReviewDetail from "./pages/ReviewDetail";
 import ReviewQueue from "./pages/ReviewQueue";
 import ScanDetail from "./pages/ScanDetail";
+import ScanNew from "./pages/ScanNew";
+import ScansHistory from "./pages/ScansHistory";
 import Users from "./pages/Users";
 import About from "./pages/public/About";
 import Contact from "./pages/public/Contact";
@@ -46,6 +48,8 @@ export default function App() {
         <Route element={<AppShell />}>
           <Route path="app" element={<Dashboard />} />
           <Route path="app/profile" element={<Profile />} />
+          <Route path="scans" element={<ScansHistory />} />
+          <Route path="scans/new" element={<ScanNew />} />
           <Route path="scans/:id" element={<ScanDetail />} />
           <Route path="notifications" element={<Notifications />} />
 

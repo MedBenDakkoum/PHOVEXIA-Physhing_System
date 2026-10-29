@@ -1,173 +1,529 @@
-import { useEffect, useRef, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { apiFetch, apiFetchBlob } from "../api/client";
-import { ENDPOINTS, REASON_CODE } from "../api/constants";
-import { ScanStatusBadge, VerdictBadge } from "../components/ui/Badges";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import {
+  ArrowLeft,
+  Camera,
+  Clock,
+  Gauge,
+  History,
+  Link2,
+  ShieldAlert,
+  ShieldCheck,
+  XCircle,
+} from "lucide-react";
+import { getScan, getScanScreenshot, reportScan } from "../api/scans";
+import {
+  CLAIMED_LABEL,
+  MODALITY_LABEL,
+  PROBABILITY_MODALITIES,
+  REASON_CODE,
+  TERMINAL_SCAN_STATUSES,
+} from "../api/constants";
+import {
+  DetectionBadge,
+  ReportBadge,
+  ScanStatusBadge,
+  VerdictBadge,
+} from "../components/ui/Badges";
+import Button from "../components/ui/Button";
+import { SelectField, TextAreaField } from "../components/ui/Fields";
+import PageHeader from "../components/ui/PageHeader";
+import SafeUrl from "../components/ui/SafeUrl";
+import { ErrorState, Skeleton } from "../components/ui/States";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
+import { useToast } from "../context/ToastContext";
+import { formatDateTime, relativeTime } from "../utils/format";
 
-export default function ScanDetail() {
-  const { id } = useParams();
-  const nav = useNavigate();
-  const [scan, setScan] = useState(null);
-  const [error, setError] = useState(null);
-  const [polling, setPolling] = useState(true);
-  const [screenshotUrl, setScreenshotUrl] = useState(null);
-  const [reported, setReported] = useState(false);
-  const [reportForm, setReportForm] = useState({ claimed_label: "phishing", comment: "" });
-  const timerRef = useRef(null);
-  const abortRef = useRef(null);
-  const tabHiddenRef = useRef(false);
+const isTerminal = (status) => TERMINAL_SCAN_STATUSES.includes(status);
+const scoreText = (value) => (typeof value === "number" ? value.toFixed(3) : "—");
+const signalValue = (value) => {
+  if (value === null || value === undefined) return "—";
+  if (typeof value === "boolean") return value ? "Oui" : "Non";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+};
+const humanKey = (key) => key.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 
-  // Visibility pause
-  useEffect(() => {
-    const onVis = () => { tabHiddenRef.current = document.hidden; };
-    document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
-  }, []);
+const STEP_INDEX = {
+  submitted: 0,
+  analyzing: 1,
+  detected: 2,
+  failed: 2,
+  under_review: 3,
+  confirmed: 3,
+  false_positive: 3,
+  blocked: 3,
+};
 
-  // Load scan
-  useEffect(() => {
-    if (!id) { setError({ msg: "Identifiant manquant", code: "MISSING_ID" }); return; }
-    if (abortRef.current) abortRef.current.abort();
-    abortRef.current = new AbortController();
-    apiFetch(ENDPOINTS.scan(id)).then(r => {
-      if (!r.ok) {
-        if (r.status === 404) setError({ msg: "Scan introuvable — vérifiez l'identifiant UUID.", code: "NOT_FOUND" });
-        else setError({ msg: r.error?.message || "Erreur chargement", code: r.error?.code || "ERROR" });
-        setPolling(false);
-        return;
-      }
-      setScan(r.data);
-      const s = r.data?.status;
-      if (["confirmed", "false_positive", "blocked", "failed", "detected"].includes(s)) setPolling(false);
-      else setPolling(true);
-    });
-  }, [id]);
+function StatusTimeline({ status }) {
+  const current = STEP_INDEX[status] ?? 0;
+  const steps = [
+    { key: "submitted", label: "Soumis" },
+    { key: "analyzing", label: "Analyse" },
+    { key: "verdict", label: "Verdict automatique" },
+    { key: "review", label: "Revue ou décision" },
+  ];
+  return (
+    <ol className="scan-timeline" aria-label="Progression du scan" data-testid="scan-timeline">
+      {steps.map((step, index) => {
+        const state = index < current ? "done" : index === current ? "current" : "pending";
+        return (
+          <li key={step.key} className={`scan-step is-${state} ${status === "failed" && index === 2 ? "is-error" : ""}`}>
+            <span className="scan-step-dot" aria-hidden="true">{index + 1}</span>
+            <span>{step.label}</span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
 
-  // Poll with backoff
-  useEffect(() => {
-    if (!polling || !scan) return;
-    let delay = 2000;
-    const tick = () => {
-      if (tabHiddenRef.current) { timerRef.current = setTimeout(tick, 2000); return; }
-      apiFetch(ENDPOINTS.scan(id)).then(r => {
-        if (r.ok && r.data) {
-          setScan(r.data);
-          const s = r.data.status;
-          if (["confirmed", "false_positive", "blocked", "failed", "detected"].includes(s)) { setPolling(false); return; }
-        }
-        delay = Math.min(delay + 1000, 8000);
-        timerRef.current = setTimeout(tick, delay);
-      });
-    };
-    timerRef.current = setTimeout(tick, delay);
-    return () => clearTimeout(timerRef.current);
-  }, [polling, scan, id]);
-
-  // Stop polling after 3 min with notice (simplified: after 6 iterations ~3 min)
-  useEffect(() => {
-    const limiter = setTimeout(() => { if (polling) setPolling(false); }, 180000);
-    return () => clearTimeout(limiter);
-  }, [polling]);
-
-  // Screenshot blob with JWT, revoke on unmount
-  useEffect(() => {
-    if (!scan) return undefined;
-    let active = true;
-    let blobUrl = null;
-    const ctrl = new AbortController();
-    apiFetchBlob(ENDPOINTS.scanScreenshot(id), { signal: ctrl.signal })
-      .then(async (r) => {
-        if (!active || !r.ok) return;
-        const b = await r.blob();
-        blobUrl = URL.createObjectURL(b);
-        setScreenshotUrl(blobUrl);
-      })
-      .catch(() => {});
-    return () => {
-      active = false;
-      ctrl.abort();
-      if (blobUrl) URL.revokeObjectURL(blobUrl);
-    };
-  }, [scan?.id, id]);
-
-  // Report wrong verdict
-  const handleReport = async (e) => {
-    e.preventDefault();
-    const r = await apiFetch(ENDPOINTS.scanReport(id), { method: "POST", body: JSON.stringify(reportForm) });
-    if (!r.ok && r.status === 409) { setReported(true); return; }
-    if (r.ok || r.data) { setReported(true); setScan(s => ({ ...s, has_report: true, report_status: "open" })); }
-  };
-
-  if (error) return <div role="alert" aria-live="assertive" style={{ padding: 24, color: "#ff6b78" }}>{error.msg}<br/><button onClick={() => nav("/scans")}>Retour</button></div>;
-  if (!scan) return <div style={{ padding: 24 }}>Chargement…</div>;
+function ProbabilityBars({ probabilities }) {
+  const entries = useMemo(() => {
+    const known = PROBABILITY_MODALITIES.map((key) => [key, probabilities?.[key]]);
+    const extra = Object.entries(probabilities || {}).filter(([key]) => !PROBABILITY_MODALITIES.includes(key));
+    return [...known, ...extra];
+  }, [probabilities]);
+  const available = entries.filter(([, value]) => typeof value === "number");
 
   return (
-    <div style={{ maxWidth: 900, margin: "0 auto", padding: 24 }}>
-      <button onClick={() => nav(-1)}>← Retour</button>
-      <h1>Scan <span style={{ fontFamily: "monospace" }}>{id}</span></h1>
-      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <VerdictBadge verdict={scan.verdict} />
-        <ScanStatusBadge status={scan.status} />
-        <span>Score : <strong>{typeof scan.score === "number" ? scan.score.toFixed(3) : scan.score}</strong></span>
-      </div>
-      <p><strong>URL :</strong> <span style={{ wordBreak: "break-all" }}>{scan.url}</span></p>
-      {scan.partial && (
-        <div role="alert" style={{ background: "#f2b84b22", padding: 12, borderRadius: 8, margin: "12px 0" }}>
-          <strong>Résultat partiel — raison :</strong> {REASON_CODE[scan.reason_code] || scan.reason_code || "—"}
+    <section className="card card-pad" aria-labelledby="probabilities-title" data-testid="probability-bars">
+      <div className="card-head">
+        <div>
+          <h2 id="probabilities-title" className="card-title">Probabilités par modalité</h2>
+          <p className="card-sub">
+            <em>les barres sont les sorties de chaque modèle, pas une explication certifiée</em>.
+          </p>
         </div>
-      )}
-      {scan.detection_source === "blocklist" && (
-        <p aria-label="Source blocklist"><strong>Source :</strong> Blocklist (domaine bloqué immédiatement)</p>
-      )}
-      {scan.probabilities && (
-        <div aria-label="Probabilités par modalité">
-          <h3>Probabilités (modèle son sorties, non explication certifiée)</h3>
-          {Object.entries(scan.probabilities).map(([k, v]) => (
-            <div key={k} style={{ margin: 4 }}>
-              <span style={{ textTransform: "capitalize", minWidth: 120, display: "inline-block" }}>{k}</span>
-              <div style={{ height: 10, background: "#0a1130", borderRadius: 5, width: "100%", maxWidth: 400 }}>
-                <div style={{ height: "100%", width: `${(v || 0) * 100}%`, background: "#f2b84b", borderRadius: 5 }} />
+      </div>
+      {available.length === 0 ? (
+        <p className="muted" style={{ margin: 0 }}>Aucune probabilité disponible pour ce scan.</p>
+      ) : (
+        <div className="prob-list">
+          {entries.map(([key, value]) => (
+            <div className="prob-row" key={key} data-modality={key}>
+              <div className="prob-head">
+                <span>{MODALITY_LABEL[key] || humanKey(key)}</span>
+                <b>{typeof value === "number" ? value.toFixed(3) : "—"}</b>
               </div>
-              <span style={{ fontSize: 12 }}>{(v || 0).toFixed(3)}</span>
+              <div className="prob-track" aria-hidden="true">
+                <div
+                  className="prob-fill"
+                  style={{ width: `${typeof value === "number" ? Math.max(0, Math.min(1, value)) * 100 : 0}%` }}
+                />
+              </div>
             </div>
           ))}
-          <p style={{ fontSize: 12, color: "#7685b3" }}>Note honnête : ces barres sont les sorties du modèle, pas une explication certifiée du risque.</p>
         </div>
       )}
-      {scan.signals && (
+    </section>
+  );
+}
+
+export default function ScanDetail() {
+  useDocumentTitle("Détail du scan");
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const toast = useToast();
+  const [scan, setScan] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [pollStopped, setPollStopped] = useState(false);
+  const [screenshotUrl, setScreenshotUrl] = useState(null);
+  const [screenshotState, setScreenshotState] = useState("idle");
+  const [claimedLabel, setClaimedLabel] = useState("safe");
+  const [comment, setComment] = useState("");
+  const [reportError, setReportError] = useState("");
+  const [reporting, setReporting] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    let timer = null;
+    let delay = 2000;
+    let terminal = false;
+    const limit = setTimeout(() => {
+      if (!active || terminal) return;
+      active = false;
+      clearTimeout(timer);
+      setPollStopped(true);
+    }, 180000);
+
+    const load = async () => {
+      try {
+        const data = await getScan(id);
+        if (!active) return;
+        setScan(data);
+        setLoading(false);
+        setError(null);
+        if (isTerminal(data.status)) {
+          terminal = true;
+          clearTimeout(limit);
+          return;
+        }
+        delay = Math.min(delay + 1000, 8000);
+        timer = setTimeout(load, delay);
+      } catch (err) {
+        if (!active) return;
+        setLoading(false);
+        setError(err);
+        clearTimeout(limit);
+      }
+    };
+
+    setLoading(true);
+    setError(null);
+    setPollStopped(false);
+    setScan(null);
+    load();
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+      clearTimeout(limit);
+    };
+  }, [id]);
+
+  useEffect(() => {
+    if (!scan?.id || !isTerminal(scan.status)) return undefined;
+    let active = true;
+    let objectUrl = null;
+    const controller = new AbortController();
+    setScreenshotState("loading");
+    setScreenshotUrl(null);
+    getScanScreenshot(scan.id, controller.signal)
+      .then((blob) => {
+        if (!active) return;
+        if (!blob) {
+          setScreenshotState("missing");
+          return;
+        }
+        objectUrl = URL.createObjectURL(blob);
+        setScreenshotUrl(objectUrl);
+        setScreenshotState("ready");
+      })
+      .catch((err) => {
+        if (!active || err?.name === "AbortError") return;
+        setScreenshotState("error");
+      });
+    return () => {
+      active = false;
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [scan?.id, scan?.status]);
+
+  const submitReport = async (event) => {
+    event.preventDefault();
+    setReportError("");
+    setReporting(true);
+    try {
+      await reportScan(scan.id, { claimed_label: claimedLabel, comment });
+      setScan((current) => ({
+        ...current,
+        has_report: true,
+        report_status: "open",
+        status: current.status === "detected" ? "under_review" : current.status,
+      }));
+      toast.success("Signalement envoyé", "Un analyste examinera le verdict de ce scan.");
+    } catch (err) {
+      if (err?.status === 409) {
+        setScan((current) => ({ ...current, has_report: true, report_status: "open" }));
+        setReportError("Ce scan a déjà été signalé. Un seul signalement est autorisé par scan.");
+      } else {
+        setReportError(err?.message || "Le signalement n'a pas pu être envoyé.");
+      }
+    } finally {
+      setReporting(false);
+    }
+  };
+
+  if (error) {
+    return (
+      <>
+        <PageHeader title="Détail du scan" description="Le résultat demandé n'est pas accessible." />
+        <ErrorState
+          error={error}
+          title={error.status === 404 ? "Scan introuvable" : "Impossible de charger le scan"}
+        />
+        <div className="inline-actions" style={{ marginTop: 14 }}>
+          <Button variant="ghost" to="/scans" icon={History}>Retour à l'historique</Button>
+        </div>
+      </>
+    );
+  }
+
+  if (loading && !scan) {
+    return (
+      <>
+        <PageHeader title="Détail du scan" description="Chargement du résultat…" />
+        <section className="card card-pad">
+          <Skeleton h={28} w="48%" />
+          <Skeleton h={16} w="78%" style={{ marginTop: 12 }} />
+          <Skeleton h={220} r={14} style={{ marginTop: 24 }} />
+        </section>
+      </>
+    );
+  }
+
+  if (!scan) return null;
+
+  const reason = scan.reason_code ? REASON_CODE[scan.reason_code] || scan.reason_code : null;
+  const signals = Object.entries(scan.signals || {});
+  const canReport =
+    !scan.has_report && ["detected", "under_review"].includes(scan.status) && scan.verdict != null;
+
+  return (
+    <>
+      <PageHeader
+        title="Détail du scan"
+        description={`${scan.domain || scan.url} · reçu ${relativeTime(scan.created_at)}`}
+        actions={
+          <div className="toolbar-actions">
+            <Button variant="ghost" to="/scans" icon={ArrowLeft}>
+              Retour à l'historique
+            </Button>
+            <Button variant="gold" to="/scans/new" icon={Link2}>
+              Nouveau scan
+            </Button>
+          </div>
+        }
+      />
+
+      <section className="card review-summary scan-summary" aria-label="Résumé du scan">
         <div>
-          <h3>Signaux techniques</h3>
-          <pre style={{ background: "#070c22", padding: 12, overflow: "auto" }}>{JSON.stringify(scan.signals, null, 2)}</pre>
+          <span className="field-label">Verdict</span>
+          <div style={{ marginTop: 5 }} data-testid="scan-verdict"><VerdictBadge verdict={scan.verdict} /></div>
         </div>
-      )}
-      {scan.final_url && <p><strong>URL finale :</strong> {scan.final_url}</p>}
-      {screenshotUrl && (
-        <figure style={{ margin: 12 }}>
-          <img src={screenshotUrl} alt="Capture du site analysé" style={{ maxWidth: "100%", border: "1px solid #172254", borderRadius: 8 }} />
-        </figure>
-      )}
-      {scan.verdict === "phishing" && (
-        <div role="alert" aria-live="assertive" style={{ background: "#ff6b78", color: "#fff", padding: 12, borderRadius: 8, margin: "12px 0" }}>
-          <strong>Attention — ne visitez pas ce site.</strong> Le verdict est Phishing.
+        <div>
+          <span className="field-label">Statut</span>
+          <div style={{ marginTop: 5 }} data-testid="scan-status"><ScanStatusBadge status={scan.status} /></div>
         </div>
-      )}
-      <section aria-label="Signaler une erreur" style={{ marginTop: 24, padding: 12, background: "#111a40", borderRadius: 8 }}>
-        <h3>Signaler une erreur (US31)</h3>
-        {!scan.has_report && !reported ? (
-          <form onSubmit={handleReport}>
-            <label>Verdict supposé</label>
-            <select value={reportForm.claimed_label} onChange={e => setReportForm({ ...reportForm, claimed_label: e.target.value })}>
-              <option value="phishing">Phishing</option><option value="safe">Sûr</option>
-            </select>
-            <label>Commentaire</label>
-            <textarea value={reportForm.comment} onChange={e => setReportForm({ ...reportForm, comment: e.target.value })} rows={3} style={{ width: "100%" }} />
-            <button type="submit">Envoyer</button>
-          </form>
-        ) : (
-          <p>Déjà signalé — décision : {scan.report_status || "en attente de revue"} (pas de nom d'analyste affiché).</p>
-        )}
+        <div>
+          <span className="field-label">Score</span>
+          <div style={{ marginTop: 5 }}><strong className="tabular" data-testid="scan-score">{scoreText(scan.score)}</strong></div>
+        </div>
+        <div>
+          <span className="field-label">Source</span>
+          <div style={{ marginTop: 5 }}><DetectionBadge source={scan.detection_source} /></div>
+        </div>
+        <div>
+          <span className="field-label">Signalement</span>
+          <div style={{ marginTop: 5 }}><ReportBadge reported={scan.has_report} /></div>
+        </div>
+        <div>
+          <span className="field-label">Modèle</span>
+          <div style={{ marginTop: 5 }} className="mono truncate" title={scan.model_version || ""}>
+            {scan.model_version || <span className="faint">—</span>}
+          </div>
+        </div>
       </section>
-      {polling && <p aria-live="polite">Mise à jour en cours… (arrêt automatique après 3 min)</p>}
-    </div>
+
+      {scan.verdict === "phishing" && (
+        <div className="alert alert-error" role="alert" style={{ marginTop: 18 }}>
+          <ShieldAlert size={18} />
+          <span><strong>Ne visitez pas ce site.</strong> Le verdict est Phishing.</span>
+        </div>
+      )}
+
+      {scan.partial && (
+        <div className="alert alert-gold" role="status" style={{ marginTop: 18 }} data-testid="partial-banner">
+          <ShieldAlert size={18} />
+          <span>
+            <strong>Résultat partiel — ce n'est pas un verdict.</strong>
+            {reason ? ` Raison : ${reason}.` : ""} Certaines modalités n'ont pas pu être analysées.
+          </span>
+        </div>
+      )}
+
+      {scan.status === "failed" && (
+        <div className="alert alert-error" role="alert" style={{ marginTop: 18 }}>
+          <XCircle size={18} />
+          <span>
+            <strong>L'analyse a échoué.</strong>
+            {reason ? ` Raison : ${reason}.` : ""} Vous pouvez relancer un scan depuis l'historique.
+          </span>
+        </div>
+      )}
+
+      <div className="scan-detail-grid">
+        <div className="scan-main">
+          <section className="card card-pad" aria-labelledby="timeline-title">
+            <div className="card-head">
+              <div>
+                <h2 id="timeline-title" className="card-title">Progression</h2>
+                <p className="card-sub">Le suivi s'arrête dès que le scan atteint un statut final.</p>
+              </div>
+              {!isTerminal(scan.status) && !pollStopped && (
+                <span className="badge badge-info" role="status">Mise à jour automatique</span>
+              )}
+            </div>
+            <StatusTimeline status={scan.status} />
+            {pollStopped && !isTerminal(scan.status) && (
+              <p className="alert alert-info" role="status" style={{ marginTop: 16 }}>
+                Le suivi automatique s'est arrêté après 3 minutes. Rechargez la page pour vérifier à nouveau.
+              </p>
+            )}
+          </section>
+
+          <section className="card card-pad" aria-labelledby="urls-title">
+            <div className="card-head">
+              <div>
+                <h2 id="urls-title" className="card-title">Adresse analysée</h2>
+                <p className="card-sub">Le site n'est jamais ouvert dans votre navigateur.</p>
+              </div>
+            </div>
+            <div className="stack-sm">
+              <div className="url-box">
+                <small>URL soumise</small>
+                <SafeUrl value={scan.url} />
+              </div>
+              {scan.final_url && scan.final_url !== scan.url && (
+                <div className="url-box">
+                  <small>URL finale après redirections</small>
+                  <SafeUrl value={scan.final_url} />
+                </div>
+              )}
+              {scan.detection_source === "blocklist" && (
+                <p className="alert alert-gold" role="status" style={{ margin: 0 }}>
+                  <ShieldCheck size={18} />
+                  <span>Domaine déjà bloqué : le verdict a été appliqué immédiatement, sans exécuter le modèle.</span>
+                </p>
+              )}
+            </div>
+          </section>
+
+          <section className="card card-pad" aria-labelledby="screenshot-title">
+            <div className="card-head">
+              <div>
+                <h2 id="screenshot-title" className="card-title">Capture isolée</h2>
+                <p className="card-sub">Image produite par le navigateur du bac à sable, sans accès à votre réseau.</p>
+              </div>
+              <Camera size={20} className="faint" aria-hidden="true" />
+            </div>
+            {screenshotState === "idle" && !isTerminal(scan.status) && (
+              <p className="alert alert-info" role="status">
+                <Camera size={18} />
+                <span>La capture sera disponible dès que l'analyse sera terminée.</span>
+              </p>
+            )}
+            {screenshotState === "loading" && <Skeleton h={240} r={14} />}
+            {screenshotState === "ready" && screenshotUrl && (
+              <figure className="screenshot-frame">
+                <img src={screenshotUrl} alt="Capture isolée du site analysé" data-testid="scan-screenshot" />
+                <figcaption>Capture du site au moment de l'analyse.</figcaption>
+              </figure>
+            )}
+            {screenshotState === "missing" && (
+              <p className="alert alert-info" role="status">
+                <Camera size={18} />
+                <span>Aucune capture n'est disponible pour ce scan.</span>
+              </p>
+            )}
+            {screenshotState === "error" && (
+              <p className="alert alert-error" role="alert">
+                <XCircle size={18} />
+                <span>La capture n'a pas pu être chargée.</span>
+              </p>
+            )}
+          </section>
+
+          <ProbabilityBars probabilities={scan.probabilities} />
+
+          <section className="card card-pad" aria-labelledby="signals-title">
+            <div className="card-head">
+              <div>
+                <h2 id="signals-title" className="card-title">Signaux techniques</h2>
+                <p className="card-sub">Indices collectés pendant l'analyse, à interpréter avec le verdict.</p>
+              </div>
+            </div>
+            {signals.length === 0 ? (
+              <p className="muted" style={{ margin: 0 }}>Aucun signal technique disponible.</p>
+            ) : (
+              <dl className="kv">
+                {signals.map(([key, value]) => (
+                  <div key={key} style={{ display: "contents" }}>
+                    <dt>{humanKey(key)}</dt>
+                    <dd className="mono" style={{ overflowWrap: "anywhere" }}>{signalValue(value)}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+          </section>
+        </div>
+
+        <aside className="scan-side">
+          <section className="card card-pad" aria-labelledby="meta-title">
+            <div className="card-head">
+              <div>
+                <h2 id="meta-title" className="card-title">Informations</h2>
+                <p className="card-sub">Traçabilité du résultat.</p>
+              </div>
+            </div>
+            <dl className="kv">
+              <dt><Clock size={14} aria-hidden="true" /> Créé</dt>
+              <dd>{formatDateTime(scan.created_at)}</dd>
+              <dt><Clock size={14} aria-hidden="true" /> Terminé</dt>
+              <dd>{scan.finished_at ? formatDateTime(scan.finished_at) : <span className="faint">—</span>}</dd>
+              <dt><Gauge size={14} aria-hidden="true" /> Score</dt>
+              <dd className="tabular">{scoreText(scan.score)}</dd>
+            </dl>
+          </section>
+
+          <section className="card card-pad" aria-labelledby="report-title" data-testid="report-section">
+            <div className="card-head">
+              <div>
+                <h2 id="report-title" className="card-title">Signaler une erreur</h2>
+                <p className="card-sub">Un signalement est définitif et sera examiné par un analyste.</p>
+              </div>
+            </div>
+            {scan.has_report ? (
+              <div className="alert alert-info" role="status">
+                <ShieldCheck size={18} />
+                <span>
+                  Signalement déjà enregistré{scan.report_status === "resolved" ? " et résolu" : ""}.
+                  Un seul signalement est autorisé par scan.
+                </span>
+              </div>
+            ) : canReport ? (
+              <form onSubmit={submitReport} className="stack-sm">
+                <SelectField
+                  label="Verdict attendu"
+                  value={claimedLabel}
+                  onChange={(event) => setClaimedLabel(event.target.value)}
+                  data-testid="report-claimed-label"
+                >
+                  {Object.entries(CLAIMED_LABEL).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </SelectField>
+                <TextAreaField
+                  label="Commentaire (optionnel)"
+                  rows={3}
+                  maxLength={1000}
+                  value={comment}
+                  onChange={(event) => setComment(event.target.value)}
+                  data-testid="report-comment"
+                />
+                {reportError && (
+                  <p className="alert alert-error" role="alert" data-testid="report-error">{reportError}</p>
+                )}
+                <Button variant="ghost" type="submit" loading={reporting} data-testid="report-submit">
+                  Envoyer le signalement
+                </Button>
+              </form>
+            ) : (
+              <p className="muted" style={{ margin: 0 }}>
+                {isTerminal(scan.status)
+                  ? "Ce scan n'est plus signalable dans son état actuel."
+                  : "Le signalement sera disponible une fois le verdict rendu."}
+              </p>
+            )}
+            {reportError && scan.has_report && (
+              <p className="alert alert-error" role="alert" style={{ marginTop: 12 }}>{reportError}</p>
+            )}
+          </section>
+        </aside>
+      </div>
+    </>
   );
 }

@@ -55,3 +55,8 @@ docs/
 
 # Artifacts ML locaux (bundle Kaggle, hors git)
 ml_artifacts/
+
+frontend/reports/
+frontend/test-results/
+frontend/playwright-report/
+tmp_*
