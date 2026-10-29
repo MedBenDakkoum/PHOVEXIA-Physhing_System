@@ -1,70 +1,198 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { apiFetch } from "../api/client";
-import { ENDPOINTS, SCAN_STATUS_VALUES } from "../api/constants";
+import { ArrowRight, History, Link2, ShieldAlert } from "lucide-react";
+import { createScan, getScanQuota } from "../api/scans";
+import Button from "../components/ui/Button";
+import { TextField } from "../components/ui/Fields";
+import PageHeader from "../components/ui/PageHeader";
+import { Skeleton } from "../components/ui/States";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
+import { formatDateTime } from "../utils/format";
 
-function validateUrl(url) {
+function validateUrl(raw) {
   try {
-    const u = new URL(url);
-    if (u.protocol !== "http:" && u.protocol !== "https:") return { ok: false, msg: "Seuls http/https sont autorisés" };
-    if (url.length > 2048) return { ok: false, msg: "URL trop longue (>2048)" };
-    if (u.username || u.password) return { ok: false, msg: "Ne pas inclure d'identifiants" };
-    return { ok: true };
+    const parsed = new URL(raw.trim());
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      return "Seules les adresses http:// et https:// sont acceptées.";
+    }
+    if (raw.trim().length > 2048) return "L'adresse ne peut pas dépasser 2048 caractères.";
+    if (parsed.username || parsed.password) return "Ne pas inclure d'identifiants dans l'URL.";
+    if (!parsed.hostname) return "Le domaine est manquant.";
+    return "";
   } catch {
-    return { ok: false, msg: "URL invalide" };
+    return "Saisissez une adresse URL valide, par exemple https://exemple.com.";
   }
 }
 
 export default function ScanNew() {
+  useDocumentTitle("Nouveau scan");
+  const navigate = useNavigate();
   const [url, setUrl] = useState("");
-  const [err, setErr] = useState(null);
+  const [error, setError] = useState("");
   const [quota, setQuota] = useState(null);
+  const [quotaError, setQuotaError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const nav = useNavigate();
+  const [retryIn, setRetryIn] = useState(0);
 
-  // Load quota once
-  useState(() => {
-    apiFetch(ENDPOINTS.scans + "quota/").then(r => { if (r.ok && r.data) setQuota(r.data); });
-  });
+  useEffect(() => {
+    const controller = new AbortController();
+    getScanQuota(controller.signal)
+      .then((data) => setQuota(data))
+      .catch((err) => {
+        if (err?.name !== "AbortError") setQuotaError(err?.message || "Quota indisponible.");
+      });
+    return () => controller.abort();
+  }, []);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setErr(null);
-    const v = validateUrl(url);
-    if (!v.ok) { setErr({ msg: v.msg, code: "INVALID_URL" }); return; }
-    if (quota && quota.remaining <= 0) { setErr({ msg: "Quota épuisé — réessayez à " + quota.reset_at, code: "QUOTA_ZERO" }); return; }
-    setSubmitting(true);
-    const r = await apiFetch(ENDPOINTS.scans, { method: "POST", body: JSON.stringify({ url }) });
-    setSubmitting(false);
-    if (!r.ok) {
-      if (r.status === 400) {
-        const m = r.data?.code === "forbidden_address" ? "Adresse interdite (privée/loopback)" : r.data?.detail || "Requête invalide";
-        setErr({ msg: m, code: r.data?.code || "BAD_REQUEST" });
-      } else if (r.status === 429) {
-        setErr({ msg: "Quota dépassé — attendez " + (r.retryAfter || 60) + "s", code: "TOO_MANY_REQUESTS", retryAfter: r.retryAfter });
-      } else {
-        setErr({ msg: r.error?.message || "Erreur", code: r.error?.code || "ERROR" });
-      }
+  useEffect(() => {
+    if (retryIn <= 0) return undefined;
+    const timer = setInterval(() => setRetryIn((value) => Math.max(0, value - 1)), 1000);
+    return () => clearInterval(timer);
+  }, [retryIn]);
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setError("");
+    const validation = validateUrl(url);
+    if (validation) {
+      setError(validation);
       return;
     }
-    if (r.ok && r.data?.id) nav("/scans/" + r.data.id);
+    if (quota && quota.remaining <= 0) {
+      setError("Quota quotidien épuisé. Patientez jusqu'à la réinitialisation.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const created = await createScan(url.trim());
+      navigate(`/scans/${created.id}`);
+    } catch (err) {
+      if (err?.status === 429) {
+        setRetryIn(err.retryAfter || 60);
+        setError(err.message || "Quota atteint. Patientez avant de réessayer.");
+      } else {
+        setError(err?.message || "La demande d'analyse a échoué.");
+      }
+    } finally {
+      setSubmitting(false);
+    }
   };
 
+  const remaining = quota?.remaining ?? null;
+  const used = quota?.used ?? 0;
+  const limit = quota?.limit ?? 0;
+  const ratio = limit > 0 ? Math.min(100, Math.max(0, (used / limit) * 100)) : 0;
+  const exhausted = remaining !== null && remaining <= 0;
+
   return (
-    <div style={{ maxWidth: 640, margin: "0 auto", padding: 24 }}>
-      <h1>Nouveau scan</h1>
-      <form onSubmit={handleSubmit} aria-label="Formulaire de soumission d'URL">
-        <label htmlFor="url">URL à analyser <span aria-label="requis">*</span></label>
-        <input id="url" type="url" value={url} onChange={e => setUrl(e.target.value)} placeholder="https://example.com" required aria-required="true" style={{ width: "100%", padding: 8 }} />
-        {quota && (
-          <p>Quota restant : <strong>{quota.remaining}</strong> — réinitialisation : {quota.reset_at ? new Date(quota.reset_at).toLocaleString("fr-FR") : "—"}</p>
-        )}
-        <button type="submit" disabled={submitting || (quota && quota.remaining <= 0)} aria-disabled={submitting || (quota && quota.remaining <= 0)}>
-          {submitting ? "Envoi…" : quota && quota.remaining <= 0 ? "Quota épuisé" : "Analyser"}
-        </button>
-      </form>
-      {err && <div role="alert" aria-live="assertive" style={{ color: "#ff6b78", marginTop: 12 }}>{err.msg}</div>}
-      <p style={{ fontSize: 12, color: "#7685b3" }}>Validation client uniquement ; le serveur vérifie toujours SSRF, format et quota.</p>
-    </div>
+    <>
+      <PageHeader
+        title="Nouveau scan"
+        description="Soumettez une adresse web. L'analyse complète se poursuit en arrière-plan et reste consultable dans votre historique."
+        actions={
+          <Button variant="ghost" to="/scans" icon={History}>
+            Mon historique
+          </Button>
+        }
+      />
+
+      <div className="scan-new-grid">
+        <section className="card card-pad" aria-labelledby="scan-form-title">
+          <div className="card-head">
+            <div>
+              <h2 id="scan-form-title" className="card-title">Adresse à analyser</h2>
+              <p className="card-sub">Le serveur vérifie aussi le format, le quota et les adresses interdites (SSRF).</p>
+            </div>
+          </div>
+
+          <form onSubmit={submit} noValidate data-testid="scan-form">
+            <TextField
+              label="URL à analyser"
+              type="url"
+              inputMode="url"
+              placeholder="https://exemple.com/page"
+              value={url}
+              onChange={(event) => {
+                setUrl(event.target.value);
+                setError("");
+              }}
+              error={error}
+              hint="Adresse http:// ou https:// uniquement, 2048 caractères maximum."
+              icon={Link2}
+              autoComplete="url"
+              name="url"
+              data-testid="scan-url"
+            />
+
+            <div className="inline-actions" style={{ marginTop: 18 }}>
+              <Button
+                variant="gold"
+                type="submit"
+                iconRight={ArrowRight}
+                loading={submitting}
+                disabled={exhausted || retryIn > 0}
+                data-testid="scan-submit"
+              >
+                Lancer l'analyse
+              </Button>
+              {retryIn > 0 && (
+                <span className="muted" role="status" data-testid="scan-countdown">
+                  Réessayez dans {retryIn} s.
+                </span>
+              )}
+            </div>
+          </form>
+
+          {error && (
+            <div className="alert alert-error" role="alert" style={{ marginTop: 16 }} data-testid="scan-error">
+              <ShieldAlert size={18} />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <p className="url-analysis-access" style={{ marginTop: 18 }}>
+            Une URL locale, privée ou réservée est refusée par le serveur. Ne visitez jamais un lien suspect
+            dans votre navigateur : la plateforme l'inspecte dans un bac à sable isolé.
+          </p>
+        </section>
+
+        <aside className="card card-pad" aria-labelledby="quota-title" data-testid="quota-card">
+          <div className="card-head">
+            <div>
+              <h2 id="quota-title" className="card-title">Quota du jour</h2>
+              <p className="card-sub">Un scan complet est décompté à la soumission.</p>
+            </div>
+          </div>
+          {!quota && !quotaError && (
+            <div className="stack-sm">
+              <Skeleton h={18} w="45%" />
+              <Skeleton h={10} />
+            </div>
+          )}
+          {quotaError && <p className="alert alert-error" role="alert">{quotaError}</p>}
+          {quota && (
+            <>
+              <div className="quota-number">
+                <strong data-testid="quota-remaining">{remaining}</strong>
+                <span>scan{remaining === 1 ? "" : "s"} restant{remaining === 1 ? "" : "s"}</span>
+              </div>
+              <div className="quota-meter" aria-hidden="true">
+                <span style={{ width: `${ratio}%` }} className={exhausted ? "is-empty" : ""} />
+              </div>
+              <p className="muted" style={{ margin: "10px 0 0", fontSize: "var(--fs-xs)" }}>
+                {used} utilisé{used === 1 ? "" : "s"} sur {limit} · réinitialisation le{" "}
+                {formatDateTime(quota.reset_at)}
+              </p>
+              {exhausted && (
+                <div className="alert alert-gold" role="status" style={{ marginTop: 16 }}>
+                  <ShieldAlert size={18} />
+                  <span>Quota épuisé. Vous pourrez relancer un scan après la réinitialisation.</span>
+                </div>
+              )}
+            </>
+          )}
+        </aside>
+      </div>
+    </>
   );
 }

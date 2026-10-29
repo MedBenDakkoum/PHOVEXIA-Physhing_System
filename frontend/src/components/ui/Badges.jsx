@@ -19,8 +19,8 @@ import { AUDIT_ACTIONS, CLAIMED_LABEL, DETECTION_SOURCE, ROLES, SCAN_STATUS, VER
 // ("viewer" n'existe pas côté backend ; on le garde comme alias défensif).
 export const ROLE_META = {
   admin: { icon: Crown, tone: "gold", desc: "Gère les comptes, les rôles et le journal d'audit." },
-  analyst: { icon: Radar, tone: "info", desc: "Accès analyste aux modules de détection." },
-  end_user: { icon: Eye, tone: "neutral", desc: "Accès en lecture. Rôle attribué à l'inscription." },
+  analyst: { icon: Radar, tone: "info", desc: "Examine les scans incertains et les signalements." },
+  end_user: { icon: Eye, tone: "neutral", desc: "Vérifie ses liens et consulte ses analyses." },
 };
 ROLE_META.viewer = ROLE_META.end_user;
 

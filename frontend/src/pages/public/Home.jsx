@@ -1,6 +1,20 @@
-import { ArrowRight, Crown, Eye, Image, KeyRound, Link2, LogIn, MessageSquareText, Mail, Radar, ScrollText, ShieldCheck, UserPlus } from "lucide-react";
+import {
+  ArrowRight,
+  Crown,
+  Eye,
+  Image,
+  KeyRound,
+  Link2,
+  LogIn,
+  Mail,
+  MessageSquareText,
+  Radar,
+  ScrollText,
+  ShieldCheck,
+  UserPlus,
+} from "lucide-react";
 import AegisEmblem from "../../components/brand/AegisEmblem";
-import UrlAnalysisForm from "../../components/analysis/UrlAnalysisForm";
+import QuickCheckForm from "../../components/analysis/QuickCheckForm";
 import Button from "../../components/ui/Button";
 import { useAuth } from "../../context/AuthContext";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
@@ -16,7 +30,7 @@ const GUARANTEES = [
   {
     icon: KeyRound,
     title: "Chacun voit ce qu'il doit voir",
-    text: "Trois rôles, Administrateur, Analyste et Lecteur, déterminent l'accès. Les nouveaux comptes démarrent en Lecteur.",
+    text: "Trois rôles, Administrateur, Analyste et Utilisateur, déterminent l'accès. Les nouveaux comptes démarrent en Utilisateur.",
   },
   {
     icon: ScrollText,
@@ -31,9 +45,22 @@ const GUARANTEES = [
 ];
 
 const ROLES = [
-  { icon: Crown, name: "Administrateur", text: "Gère les comptes et les rôles, suspend un accès, consulte tout le journal d'audit.", lead: true },
-  { icon: Radar, name: "Analyste", text: "Travaille dans l'espace d'analyse. Les modules de détection le rejoindront à leur mise en service." },
-  { icon: Eye, name: "Lecteur", text: "Consulte en lecture seule. C'est le rôle attribué à chaque nouvelle inscription." },
+  {
+    icon: Crown,
+    name: "Administrateur",
+    text: "Gère les comptes et les rôles, suspend un accès, consulte tout le journal d'audit.",
+    lead: true,
+  },
+  {
+    icon: Radar,
+    name: "Analyste",
+    text: "Examine la file de revue, traite les signalements et gère la blocklist.",
+  },
+  {
+    icon: Eye,
+    name: "Utilisateur",
+    text: "Soumet des liens, suit ses analyses et signale un verdict erroné. C'est le rôle attribué à chaque nouvelle inscription.",
+  },
 ];
 
 export default function Home() {
@@ -61,7 +88,9 @@ export default function Home() {
                   <Button variant="gold" size="lg" to="/login" icon={LogIn}>
                     Se connecter
                   </Button>
-                  
+                  <Button variant="ghost" size="lg" to="/register" icon={UserPlus}>
+                    Créer un compte
+                  </Button>
                 </>
               )}
               <Button variant="quiet" size="lg" to="/about" iconRight={ArrowRight} className="sky-quiet">
@@ -70,7 +99,7 @@ export default function Home() {
             </div>
             <ul className="pill-row" aria-label="Points clés">
               <li>Accès par rôle</li>
-              <li>Journal d'audit en lecture seule</li>
+              <li>Journal d'audit immuable</li>
               <li>Sessions de 15 minutes</li>
             </ul>
           </div>
@@ -81,7 +110,7 @@ export default function Home() {
       </section>
 
       <section className="section home-url-section" aria-label="Vérifier une adresse web">
-        <UrlAnalysisForm role="guest" />
+        <QuickCheckForm />
       </section>
 
       <section className="section" aria-labelledby="fronts-title">
@@ -170,11 +199,11 @@ export default function Home() {
               </Button>
             ) : (
               <>
-                <Button variant="gold" size="lg" to="/login" icon={LogIn}>
-                  Se connecter
+                <Button variant="gold" size="lg" to="/register" icon={UserPlus}>
+                  Créer un compte
                 </Button>
-                <Button variant="ghost" size="lg" to="/contact">
-                  Nous contacter
+                <Button variant="ghost" size="lg" to="/login" icon={LogIn}>
+                  Se connecter
                 </Button>
               </>
             )}

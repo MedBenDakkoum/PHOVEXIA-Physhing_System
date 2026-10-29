@@ -24,6 +24,14 @@ export const SCAN_STATUS = {
   failed: { label: "Échoué", badge: "bg--neutral-soft text--text-3" },
 };
 export const SCAN_STATUS_VALUES = Object.keys(SCAN_STATUS);
+export const TERMINAL_SCAN_STATUSES = [
+  "detected",
+  "under_review",
+  "confirmed",
+  "false_positive",
+  "blocked",
+  "failed",
+];
 
 export const VERDICT = {
   phishing: { label: "Phishing", badge: "bg--danger-soft text--danger" },
@@ -51,6 +59,17 @@ export const REASON_CODE = {
   INTERNAL_ERROR: "Erreur interne",
   MODEL_MISMATCH: "Version modèle incohérente",
 };
+
+export const MODALITY_LABEL = {
+  url: "URL",
+  page_text: "Texte de la page",
+  text: "Texte",
+  screenshot: "Capture",
+  metadata: "Métadonnées",
+  signals: "Signaux",
+  fusion: "Fusion",
+};
+export const PROBABILITY_MODALITIES = ["url", "page_text", "screenshot", "metadata", "fusion"];
 
 export const DETECTION_SOURCE = {
   model: "Modèle",
@@ -138,10 +157,9 @@ export const ENDPOINTS = {
   users: "/api/auth/users/",
   user: (id) => `/api/auth/users/${id}/`,
   scans: "/api/scans/",
+  scanQuota: "/api/scans/quota/",
   scan: (id) => `/api/scans/${id}/`,
   scanScreenshot: (id) => `/api/scans/${id}/screenshot/`,
-  scanRescan: (id) => `/api/scans/${id}/rescan/`,
-  scanNotes: (id) => `/api/scans/${id}/notes/`,
   scanReport: (id) => `/api/scans/${id}/report/`,
   quickCheck: "/api/quick-check/",
   quickCheckDetail: (id) => `/api/quick-check/${id}/`,
