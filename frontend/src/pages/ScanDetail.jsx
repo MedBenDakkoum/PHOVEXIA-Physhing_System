@@ -7,6 +7,7 @@ import {
   Gauge,
   History,
   Link2,
+  RefreshCw,
   ShieldAlert,
   ShieldCheck,
   XCircle,
@@ -185,6 +186,13 @@ export default function ScanDetail() {
 
   useEffect(() => {
     if (!scan?.id || !isTerminal(scan.status)) return undefined;
+    // US20: never call the screenshot endpoint when the API says there is no
+    // file (failed/partial scan) - that would only produce a 404 in console.
+    if (!scan.has_screenshot) {
+      setScreenshotState("missing");
+      setScreenshotUrl(null);
+      return undefined;
+    }
     let active = true;
     let objectUrl = null;
     const controller = new AbortController();
@@ -210,7 +218,7 @@ export default function ScanDetail() {
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [scan?.id, scan?.status]);
+  }, [scan?.id, scan?.status, scan?.has_screenshot]);
 
   const submitReport = async (event) => {
     event.preventDefault();
@@ -336,13 +344,26 @@ export default function ScanDetail() {
       )}
 
       {scan.status === "failed" && (
-        <div className="alert alert-error" role="alert" style={{ marginTop: 18 }}>
-          <XCircle size={18} />
-          <span>
-            <strong>L'analyse a échoué.</strong>
-            {reason ? ` Raison : ${reason}.` : ""} Vous pouvez relancer un scan depuis l'historique.
-          </span>
-        </div>
+        <>
+          <div className="alert alert-error" role="alert" style={{ marginTop: 18 }} data-testid="scan-failed-banner">
+            <XCircle size={18} />
+            <span>
+              <strong>L'analyse a échoué.</strong>
+              {reason ? ` Raison : ${reason}.` : ""} Vous pouvez relancer cette adresse.
+            </span>
+          </div>
+          <div className="inline-actions" style={{ marginTop: 12 }}>
+            <Button
+              variant="gold"
+              to={`/scans/new?url=${encodeURIComponent(scan.url)}`}
+              icon={RefreshCw}
+              data-testid="scan-relaunch"
+            >
+              Relancer cette adresse
+            </Button>
+            <span className="muted">Cette relance crée un nouveau scan et décompte 1 de votre quota.</span>
+          </div>
+        </>
       )}
 
       <div className="scan-detail-grid">

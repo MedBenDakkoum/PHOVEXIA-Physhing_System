@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import ClassVar
 
+from django.core.exceptions import SuspiciousOperation
+from django.core.files.storage import default_storage
 from rest_framework import serializers
 
 from .models import Scan
@@ -54,6 +56,18 @@ class ScanSerializer(serializers.ModelSerializer):
     reason_code = serializers.CharField(read_only=True)
     signals = serializers.DictField(read_only=True)
     probabilities = serializers.DictField(read_only=True)
+    # US20: the client must call the screenshot endpoint ONLY when a real file
+    # exists (no guaranteed 404 on failed/partial scans). The path itself is
+    # never exposed, so no storage detail leaks (ISO-6.6).
+    has_screenshot = serializers.SerializerMethodField()
+
+    def get_has_screenshot(self, obj: Scan) -> bool:
+        if not obj.screenshot_path:
+            return False
+        try:
+            return default_storage.exists(obj.screenshot_path)
+        except (OSError, SuspiciousOperation, ValueError):
+            return False
 
     class Meta:
         model = Scan
@@ -72,6 +86,7 @@ class ScanSerializer(serializers.ModelSerializer):
             "reason_code",
             "signals",
             "probabilities",
+            "has_screenshot",
             "created_at",
             "finished_at",
             "has_report",

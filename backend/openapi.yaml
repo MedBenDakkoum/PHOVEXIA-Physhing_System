@@ -3328,7 +3328,7 @@ components:
       - url
     QuickCheckCreated:
       type: object
-      description: 'Step 9 - 202 body: the anonymous scan reference, no other field.'
+      description: 'Step 9 - 202 body: the anonymous scan reference + signals.'
       properties:
         id:
           type: string
@@ -3336,6 +3336,22 @@ components:
         status:
           type: string
           maxLength: 20
+        model_version:
+          type: string
+          default: ''
+          maxLength: 50
+        ssl:
+          type: boolean
+          default: false
+        tld:
+          type: string
+        domain:
+          type: string
+        subdomain:
+          type: string
+          default: ''
+        final_url:
+          type: string
       required:
       - id
       - status
@@ -3795,6 +3811,9 @@ components:
           type: object
           additionalProperties: {}
           readOnly: true
+        has_screenshot:
+          type: boolean
+          readOnly: true
         created_at:
           type: string
           format: date-time
@@ -3824,6 +3843,7 @@ components:
       - final_url
       - finished_at
       - has_report
+      - has_screenshot
       - id
       - mode
       - model_version
@@ -3866,6 +3886,10 @@ components:
         detection_source:
           type: string
           maxLength: 10
+        model_version:
+          type: string
+          default: ''
+          maxLength: 50
         created_at:
           type: string
           format: date-time

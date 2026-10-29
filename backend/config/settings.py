@@ -534,8 +534,12 @@ CELERY_BROKER_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_ACCEPT_CONTENT = ["json"]
-CELERY_TASK_SOFT_TIME_LIMIT = 60
-CELERY_TASK_TIME_LIMIT = 90
+# One run_scan attempt is bounded by COLLECTOR_TIMEOUT (20 s) plus
+# INFERENCE_TIMEOUT (30 s) plus screenshot work (~50 s worst case). Retries
+# are separate tasks with a countdown, so these limits only bound ONE attempt:
+# 90 s soft leaves enough margin before the 120 s hard kill.
+CELERY_TASK_SOFT_TIME_LIMIT = 90
+CELERY_TASK_TIME_LIMIT = 120
 CELERY_TASK_ALWAYS_EAGER = False
 CELERY_TASK_EAGER_PROPAGATES_EXCEPTIONS = False
 

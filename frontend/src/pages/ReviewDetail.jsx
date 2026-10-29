@@ -134,6 +134,11 @@ export default function ReviewDetail() {
 
   useEffect(() => {
     if (!id || !review) return undefined;
+    if (!scan?.has_screenshot) {
+      setScreenshotState("missing");
+      setScreenshotUrl(null);
+      return undefined;
+    }
     let active = true;
     let objectUrl = null;
     const controller = new AbortController();
@@ -159,7 +164,7 @@ export default function ReviewDetail() {
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [id, review]);
+  }, [id, review, scan?.has_screenshot]);
 
   const notes = useMemo(
     () => [...(review?.notes || [])].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),

@@ -41,6 +41,12 @@ export const VERDICT = {
 export const VERDICT_VALUES = Object.keys(VERDICT);
 
 export const REASON_CODE = {
+  COLLECTOR_BUSY: "Service de collecte momentanément occupé",
+  COLLECTOR_TIMEOUT: "Délai de collecte dépassé",
+  COLLECTOR_UNAVAILABLE: "Service de collecte indisponible",
+  INFERENCE_UNAVAILABLE: "Service d'inférence indisponible",
+  COLLECTOR_NOT_CONFIGURED: "Service de collecte non configuré",
+  INFERENCE_NOT_CONFIGURED: "Service d'inférence non configuré",
   COLLECTOR_UNREACHABLE: "Récolte impossible",
   INFERENCE_UNREACHABLE: "Inférence indisponible",
   MISSING_URL: "URL manquante",
