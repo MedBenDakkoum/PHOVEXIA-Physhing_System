@@ -4,6 +4,14 @@ from typing import ClassVar
 from django.conf import settings
 from django.db import models
 
+# Shared by `verdict` and `model_verdict` (US19). Declared once so OpenAPI gets
+# ONE stable enum name instead of an ambiguous collision.
+VERDICT_CHOICES = (
+    ("phishing", "Phishing"),
+    ("legitimate", "Legitimate"),
+    ("uncertain", "Uncertain"),
+)
+
 
 class Scan(models.Model):
     """Phishing scan model - BR-01 quota, BR-04 status workflow, BR-07 URL validation."""
@@ -15,9 +23,12 @@ class Scan(models.Model):
 
     # Step 11 (US41): where the verdict came from. BLOCKLIST = the domain was
     # already actively blocked, so no model ran and no task was queued.
+    # BRAND_POLICY = a transparent non-DL brand rule adjusted the final verdict
+    # (the raw model output is kept in model_verdict/model_score).
     class DetectionSource(models.TextChoices):
         MODEL = "model", "Model"
         BLOCKLIST = "blocklist", "Blocklist"
+        BRAND_POLICY = "brand_policy", "Brand policy"
 
     # Statuses: Submitted -> Analyzing -> Detected/Failed -> Under Review/False Positive -> Confirmed/Blocked
     class Status(models.TextChoices):
@@ -53,16 +64,27 @@ class Scan(models.Model):
         "Status", max_length=20, choices=Status.choices, default=Status.SUBMITTED
     )
     verdict = models.CharField(
-        "Verdict", max_length=20, choices=[
-            ("phishing", "Phishing"),
-            ("legitimate", "Legitimate"),
-            ("uncertain", "Uncertain"),
-        ], null=True, blank=True
+        "Verdict", max_length=20, choices=VERDICT_CHOICES, null=True, blank=True
     )
     score = models.FloatField("Score", null=True, blank=True)
+    # Brand policy (US19): the model output is NEVER erased. `model_verdict`
+    # and `model_score` keep the raw prediction while `verdict`/`score` hold
+    # the FINAL decision (possibly adjusted by a transparent brand rule).
+    # `policy_flags` is a JSON list of machine-readable flags, `policy_note` a
+    # short French explanation for the UI. Empty when no rule applied.
+    model_verdict = models.CharField(
+        "Model verdict",
+        max_length=20,
+        choices=VERDICT_CHOICES,
+        null=True,
+        blank=True,
+    )
+    model_score = models.FloatField("Model score", null=True, blank=True)
+    policy_flags = models.JSONField("Policy flags", default=list, blank=True)
+    policy_note = models.TextField("Policy note", blank=True, default="")
     detection_source = models.CharField(
         "Detection source",
-        max_length=10,
+        max_length=20,
         choices=DetectionSource.choices,
         default=DetectionSource.MODEL,
     )

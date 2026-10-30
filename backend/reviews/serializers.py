@@ -106,6 +106,11 @@ class ReviewQueueItemSerializer(serializers.ModelSerializer):
             "status",
             "verdict",
             "score",
+            # US19: analysts see the raw model output + the brand policy flags
+            # before deciding (the model verdict is never erased).
+            "model_verdict",
+            "model_score",
+            "policy_flags",
             "detection_source",
             "created_at",
             "finished_at",

@@ -46,6 +46,16 @@ class ScanSerializer(serializers.ModelSerializer):
     # Step 12 (US48): which ModelVersion produced the verdict (empty until
     # the prediction ran, and for blocklist verdicts).
     model_version = serializers.CharField(read_only=True)
+    # US19 (brand policy): the raw model output is never erased. `verdict` and
+    # `score` above are the FINAL decision; these three fields let the owner
+    # and the analysts see what the model alone said and which transparent
+    # non-DL rule adjusted it. Anonymous quick checks stay minimal (they use
+    # QuickCheckResultSerializer, which does not expose them).
+    model_verdict = serializers.CharField(read_only=True, allow_null=True)
+    model_score = serializers.FloatField(read_only=True, allow_null=True)
+    policy_flags = serializers.ListField(
+        child=serializers.DictField(), read_only=True
+    )
     # US17 / US20 / US26: real-pipeline detail for the owner and analysts.
     # `probabilities` holds the per-modality scores under friendly names
     # (url, page_text, screenshot, metadata, fusion); `signals` the captured
@@ -79,6 +89,9 @@ class ScanSerializer(serializers.ModelSerializer):
             "status",
             "verdict",
             "score",
+            "model_verdict",
+            "model_score",
+            "policy_flags",
             "detection_source",
             "model_version",
             "final_url",
@@ -116,7 +129,7 @@ class ScanCreatedSerializer(serializers.Serializer):
     id = serializers.UUIDField()
     url = serializers.CharField(max_length=2048)
     status = serializers.CharField(max_length=20)
-    detection_source = serializers.CharField(max_length=10)
+    detection_source = serializers.CharField(max_length=20)
     # Always present (even "" right after creation): the client can always
     # tell WHICH model will produce / produced the verdict, never a missing
     # key. Empty until run_scan stamps the active ModelVersion (BR-11).

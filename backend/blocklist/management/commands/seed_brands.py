@@ -3,8 +3,12 @@
 Usage (from backend/, venv active):
     python manage.py seed_brands
 
-Idempotent: a brand whose domain already exists is skipped (not updated), so
-the command can be re-run safely after the team adds local brands to the JSON.
+Only entries carrying `"verified": true` are ACTIVATED. A `"verified": false`
+entry is added INACTIVE so the team can check the official domain and flip the
+flag later (it never influences the brand policy while inactive). An existing
+inactive row that becomes verified is reactivated; an existing active row is
+left untouched (idempotent, safe to re-run).
+
 The `created_by` FK is required by the model; the command uses (or creates) a
 dedicated system account `seed@localhost` with role end_user and an unusable
 password - it is NOT a login account.
@@ -47,7 +51,7 @@ class Command(BaseCommand):
             user.set_unusable_password()
             user.save(update_fields=["password"])
 
-        created = skipped = 0
+        activated = created_inactive = reactivated = skipped = 0
         for row in rows:
             name = (row.get("name") or "").strip()
             raw_domain = (row.get("domain") or "").strip()
@@ -61,16 +65,37 @@ class Command(BaseCommand):
                 self.stderr.write(f"Skipping invalid domain {raw_domain!r}: {exc}")
                 skipped += 1
                 continue
-            if ProtectedBrand.objects.filter(domain=domain).exists():
-                skipped += 1
+            verified = bool(row.get("verified", False))
+            existing = ProtectedBrand.objects.filter(domain=domain).first()
+            if existing is not None:
+                if verified and not existing.is_active:
+                    existing.is_active = True
+                    existing.save(update_fields=["is_active"])
+                    reactivated += 1
+                    self.stdout.write(
+                        f"  activated (verified): {existing.name} <{domain}>"
+                    )
+                else:
+                    skipped += 1
                 continue
             ProtectedBrand.objects.create(
-                name=name, domain=domain, is_active=True, created_by=user
+                name=name,
+                domain=domain,
+                is_active=verified,
+                created_by=user,
             )
-            created += 1
+            if verified:
+                activated += 1
+                self.stdout.write(f"  activated (verified): {name} <{domain}>")
+            else:
+                created_inactive += 1
+                self.stdout.write(
+                    f"  added INACTIVE (unverified): {name} <{domain}>"
+                )
         self.stdout.write(
             self.style.SUCCESS(
-                f"seed_brands: {created} created, {skipped} skipped "
-                f"(file: {SEEDS_PATH.name})."
+                f"seed_brands: {activated} activated, {reactivated} reactivated, "
+                f"{created_inactive} added inactive (verified=false), "
+                f"{skipped} skipped (file: {SEEDS_PATH.name})."
             )
         )

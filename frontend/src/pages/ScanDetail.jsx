@@ -16,9 +16,11 @@ import { getScan, getScanScreenshot, reportScan } from "../api/scans";
 import {
   CLAIMED_LABEL,
   MODALITY_LABEL,
+  POLICY_FLAG,
   PROBABILITY_MODALITIES,
   REASON_CODE,
   TERMINAL_SCAN_STATUSES,
+  VERDICT,
 } from "../api/constants";
 import {
   DetectionBadge,
@@ -277,6 +279,9 @@ export default function ScanDetail() {
 
   const reason = scan.reason_code ? REASON_CODE[scan.reason_code] || scan.reason_code : null;
   const signals = Object.entries(scan.signals || {});
+  const policyFlags = Array.isArray(scan.policy_flags) ? scan.policy_flags : [];
+  const modelVerdictLabel =
+    VERDICT[scan.model_verdict]?.label || scan.model_verdict || "—";
   const canReport =
     !scan.has_report && ["detected", "under_review"].includes(scan.status) && scan.verdict != null;
 
@@ -364,6 +369,27 @@ export default function ScanDetail() {
             <span className="muted">Cette relance crée un nouveau scan et décompte 1 de votre quota.</span>
           </div>
         </>
+      )}
+
+      {policyFlags.length > 0 && (
+        <div className="alert alert-gold" role="status" style={{ marginTop: 18 }} data-testid="brand-policy-banner">
+          <ShieldCheck size={18} />
+          <div>
+            <strong>Verdict ajusté par une règle de marque (non issue du modèle)</strong>
+            <p className="muted" style={{ margin: "6px 0" }}>
+              Le modèle seul disait : <b>{modelVerdictLabel}</b> ({scoreText(scan.model_score)}).
+            </p>
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              {policyFlags.map((flag, index) => (
+                <li key={`${flag.code || "flag"}-${index}`}>
+                  {POLICY_FLAG[flag.code] || flag.code}
+                  {flag.brand ? ` — ${flag.brand}` : ""}
+                  {typeof flag.distance === "number" ? ` (distance ${flag.distance})` : ""}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
       )}
 
       <div className="scan-detail-grid">

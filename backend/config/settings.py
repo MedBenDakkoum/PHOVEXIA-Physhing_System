@@ -520,6 +520,7 @@ SPECTACULAR_SETTINGS = {
     # (ModelVersion.Kind vs Notification.Kind).
     "ENUM_NAME_OVERRIDES": {
         "ScanStatusEnum": "scans.models.Scan.Status",
+        "ScanVerdictEnum": "scans.models.VERDICT_CHOICES",
         "ReportStatusEnum": "reviews.models.Report.Status",
         "ModelVersionKindEnum": "controlpanel.models.ModelVersion.Kind",
         "NotificationKindEnum": "reviews.models.Notification.Kind",

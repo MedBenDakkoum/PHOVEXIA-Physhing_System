@@ -26,7 +26,7 @@ scans to FAILED (reap_stuck_scans) and delete expired anonymous data
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
 
@@ -37,6 +37,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from .models import Scan
+from .services.brand_policy import apply_brand_policy
 from .services.collector_client import CollectorClient, CollectorError
 from .services.inference import (
     VERDICT_UNCERTAIN,
@@ -85,6 +86,12 @@ class ScanOutcome:
     model_bundle_version: str
     screenshot_path: str
     escalate_to_review: bool
+    # Brand policy (US19): raw model output + transparent rule outcome.
+    model_verdict: str | None = None
+    model_score: float | None = None
+    policy_flags: list[dict[str, Any]] = field(default_factory=list)
+    policy_note: str = ""
+    detection_source: str = Scan.DetectionSource.MODEL
 
 
 def _sanitize_error(exc: BaseException) -> str:
@@ -251,6 +258,11 @@ def _store_result(scan_id: int, outcome: ScanOutcome, *, model_version_label: st
             return None
         scan.verdict = outcome.verdict
         scan.score = outcome.score
+        scan.model_verdict = outcome.model_verdict
+        scan.model_score = outcome.model_score
+        scan.policy_flags = outcome.policy_flags
+        scan.policy_note = outcome.policy_note
+        scan.detection_source = outcome.detection_source
         scan.model_version = model_version_label
         scan.partial = outcome.partial
         scan.reason_code = outcome.reason_code
@@ -264,6 +276,11 @@ def _store_result(scan_id: int, outcome: ScanOutcome, *, model_version_label: st
             update_fields=[
                 "verdict",
                 "score",
+                "model_verdict",
+                "model_score",
+                "policy_flags",
+                "policy_note",
+                "detection_source",
                 "model_version",
                 "partial",
                 "reason_code",
@@ -301,12 +318,18 @@ def _signals_from_capture(capture) -> dict[str, Any]:
     }
 
 
-def _run_mock_path(scan_id: int, url: str, mode: str) -> str | None:
+def _run_mock_path(scan_id: int, url: str, mode: str, host: str) -> str | None:
     """Active version is absent or MOCK/ONNX: keep the existing MOCK flow."""
     result: PredictionResult = predict(url, mode)
+    policy = apply_brand_policy(
+        url=url,
+        host=host,
+        model_verdict=result.verdict,
+        model_score=result.score,
+    )
     outcome = ScanOutcome(
-        verdict=result.verdict,
-        score=result.score,
+        verdict=policy.verdict,
+        score=policy.score,
         partial=False,
         reason_code="",
         final_url="",
@@ -314,7 +337,14 @@ def _run_mock_path(scan_id: int, url: str, mode: str) -> str | None:
         probabilities={},
         model_bundle_version="",
         screenshot_path="",
-        escalate_to_review=(result.verdict == VERDICT_UNCERTAIN),
+        escalate_to_review=(
+            policy.escalate_to_review or policy.verdict == VERDICT_UNCERTAIN
+        ),
+        model_verdict=result.verdict,
+        model_score=result.score,
+        policy_flags=policy.flags,
+        policy_note=policy.note,
+        detection_source=policy.detection_source,
     )
     from controlpanel.services import get_active_model_version_label
 
@@ -389,9 +419,17 @@ def _run_real_pipeline(scan_id: int, active, scan: Scan) -> str | None:
     score = inf.phishing_probability
     lower, upper = _thresholds()
     verdict = classify_score(score, lower, upper)
+    # US19: transparent non-DL brand policy. The raw model output is kept in
+    # model_verdict/model_score; only the final verdict can be adjusted.
+    policy = apply_brand_policy(
+        url=scan.url,
+        host=scan.domain,
+        model_verdict=verdict,
+        model_score=score,
+    )
     outcome = ScanOutcome(
-        verdict=verdict,
-        score=score,
+        verdict=policy.verdict,
+        score=policy.score,
         partial=False,
         reason_code="",
         final_url=final_url,
@@ -399,7 +437,14 @@ def _run_real_pipeline(scan_id: int, active, scan: Scan) -> str | None:
         probabilities={**inf.base_probabilities, "fusion": score},
         model_bundle_version=inf.model_bundle_version,
         screenshot_path=screenshot_path,
-        escalate_to_review=(verdict == VERDICT_UNCERTAIN),
+        escalate_to_review=(
+            policy.escalate_to_review or policy.verdict == VERDICT_UNCERTAIN
+        ),
+        model_verdict=verdict,
+        model_score=score,
+        policy_flags=policy.flags,
+        policy_note=policy.note,
+        detection_source=policy.detection_source,
     )
     return _store_result(scan_id, outcome, model_version_label=active.version)
 
@@ -432,7 +477,7 @@ def run_scan(scan_id: int, attempt: int = 0) -> str | None:
                 scan_id,
                 f"{active.kind} {active.version}" if active else "none",
             )
-            return _run_mock_path(scan_id, scan.url, scan.mode)
+            return _run_mock_path(scan_id, scan.url, scan.mode, scan.domain)
         return _run_real_pipeline(scan_id, active, scan)
     except (CollectorError, InferenceError) as exc:
         reason = getattr(exc, "reason", "COLLECTOR_UNAVAILABLE")
