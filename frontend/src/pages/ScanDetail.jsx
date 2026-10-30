@@ -81,7 +81,16 @@ function StatusTimeline({ status }) {
   );
 }
 
-function ProbabilityBars({ probabilities }) {
+function fillColour(value, lower = 0.4, upper = 0.7) {
+  if (typeof value !== "number") return null;
+  if (value < lower) return "#22c55e";
+  if (value <= upper) return "#fb923c";
+  return "#ef4444";
+}
+
+function ProbabilityBars({ probabilities, thresholds }) {
+  const lower = thresholds?.uncertainLower ?? 0.4;
+  const upper = thresholds?.phishing ?? 0.7;
   const entries = useMemo(() => {
     const known = PROBABILITY_MODALITIES.map((key) => [key, probabilities?.[key]]);
     const extra = Object.entries(probabilities || {}).filter(([key]) => !PROBABILITY_MODALITIES.includes(key));
@@ -93,9 +102,9 @@ function ProbabilityBars({ probabilities }) {
     <section className="card card-pad" aria-labelledby="probabilities-title" data-testid="probability-bars">
       <div className="card-head">
         <div>
-          <h2 id="probabilities-title" className="card-title">Probabilités par modalité</h2>
+          <h2 id="probabilities-title" className="card-title">Probabilité de phishing par modalité</h2>
           <p className="card-sub">
-            <em>les barres sont les sorties de chaque modèle, pas une explication certifiée</em>.
+            <em>{thresholds ? "seuils de l'API" : "seuils par défaut"} : {lower} (incertain bas) / {upper} (phishing) — 0 = sûr, 1 = dangereux</em>.
           </p>
         </div>
       </div>
@@ -112,7 +121,10 @@ function ProbabilityBars({ probabilities }) {
               <div className="prob-track" aria-hidden="true">
                 <div
                   className="prob-fill"
-                  style={{ width: `${typeof value === "number" ? Math.max(0, Math.min(1, value)) * 100 : 0}%` }}
+                  style={{
+                    width: `${typeof value === "number" ? Math.max(0, Math.min(1, value)) * 100 : 0}%`,
+                    background: fillColour(value, lower, upper),
+                  }}
                 />
               </div>
             </div>
@@ -312,8 +324,15 @@ export default function ScanDetail() {
           <div style={{ marginTop: 5 }} data-testid="scan-status"><ScanStatusBadge status={scan.status} /></div>
         </div>
         <div>
-          <span className="field-label">Score</span>
-          <div style={{ marginTop: 5 }}><strong className="tabular" data-testid="scan-score">{scoreText(scan.score)}</strong></div>
+          <span className="field-label">Probabilité de phishing (modèle)</span>
+          {policyFlags.length === 0 ? (
+            <>
+              <div style={{ marginTop: 5 }}><strong className="tabular" data-testid="scan-score">{scoreText(scan.score)}</strong></div>
+              <div className="muted" style={{ fontSize: "0.85rem", marginTop: 2 }}>0 = sûr, 1 = dangereux</div>
+            </>
+          ) : (
+            <div style={{ marginTop: 5 }} className="muted">Voir bannière règle de marque ci-dessus (modèle seul : {scoreText(scan.model_score)}).</div>
+          )}
         </div>
         <div>
           <span className="field-label">Source</span>
@@ -375,7 +394,7 @@ export default function ScanDetail() {
         <div className="alert alert-gold" role="status" style={{ marginTop: 18 }} data-testid="brand-policy-banner">
           <ShieldCheck size={18} />
           <div>
-            <strong>Verdict ajusté par une règle de marque (non issue du modèle)</strong>
+            <strong>Verdict final : {scan.verdict === "legitimate" ? "Légitime" : scan.verdict === "phishing" ? "Phishing" : "Incer-tain"} (règle de marque)</strong>
             <p className="muted" style={{ margin: "6px 0" }}>
               Le modèle seul disait : <b>{modelVerdictLabel}</b> ({scoreText(scan.model_score)}).
             </p>
@@ -511,8 +530,8 @@ export default function ScanDetail() {
               <dd>{formatDateTime(scan.created_at)}</dd>
               <dt><Clock size={14} aria-hidden="true" /> Terminé</dt>
               <dd>{scan.finished_at ? formatDateTime(scan.finished_at) : <span className="faint">—</span>}</dd>
-              <dt><Gauge size={14} aria-hidden="true" /> Score</dt>
-              <dd className="tabular">{scoreText(scan.score)}</dd>
+              <dt><Gauge size={14} aria-hidden="true" /> Probabilité de phishing (modèle)</dt>
+              <dd className="tabular">{scoreText(scan.score)} <span className="muted" style={{ fontSize: "0.8rem" }}>(0 = sûr, 1 = dangereux)</span></dd>
             </dl>
           </section>
 

@@ -23,8 +23,8 @@ const PAGE_SIZE = 20;
 const ORDERING = [
   { value: "-created_at", label: "Plus récents" },
   { value: "created_at", label: "Plus anciens" },
-  { value: "-score", label: "Score décroissant" },
-  { value: "score", label: "Score croissant" },
+  { value: "-score", label: "Probabilité décroissante" },
+  { value: "score", label: "Probabilité croissante" },
 ];
 const scoreText = (value) => (typeof value === "number" ? value.toFixed(3) : "—");
 
@@ -229,7 +229,7 @@ export default function ScansHistory() {
                     <th>Site</th>
                     <th>Statut</th>
                     <th>Verdict</th>
-                    <th>Score</th>
+                    <th>Probabilité de phishing (modèle)</th>
                     <th>Signalement</th>
                     <th>Reçu</th>
                     <th>
@@ -259,8 +259,8 @@ export default function ScansHistory() {
                       <td data-label="Verdict">
                         <VerdictBadge verdict={scan.verdict} />
                       </td>
-                      <td data-label="Score" className="tabular">
-                        {scoreText(scan.score)}
+                      <td data-label="Probabilité de phishing (modèle)" className="tabular">
+                        {scoreText(scan.score)} <span className="muted" style={{ fontSize: "0.8rem" }}>0=sûr,1=dangereux</span>
                       </td>
                       <td data-label="Signalement">
                         <ReportBadge reported={scan.has_report} />
