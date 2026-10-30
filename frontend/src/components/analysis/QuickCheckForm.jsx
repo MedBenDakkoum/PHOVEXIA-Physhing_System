@@ -156,7 +156,7 @@ export default function QuickCheckForm() {
               <div className="inline-actions" style={{ marginTop: 6 }}>
                 <span data-testid="quick-check-verdict"><VerdictBadge verdict={result.verdict} /></span>
                 <span data-testid="quick-check-status"><ScanStatusBadge status={result.status} /></span>
-                <span className="muted">Score : <b className="tabular">{scoreText(result.score)}</b></span>
+                <span className="muted">Probabilité de phishing (modèle) : <b className="tabular">{scoreText(result.score)}</b> <span style={{ fontSize: "0.8rem" }}>(0 = sûr, 1 = dangereux)</span></span>
               </div>
             </div>
             {result.detection_source && (

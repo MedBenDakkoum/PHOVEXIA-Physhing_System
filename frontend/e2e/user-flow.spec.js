@@ -95,7 +95,7 @@ test.describe("parcours utilisateur", () => {
     await expect(page.getByTestId("quick-check-status")).toContainText(TERMINAL_STATUS, {
       timeout: 5 * 60 * 1000,
     });
-    await expect(result).toContainText("Score :");
+    await expect(result).toContainText("Probabilité de phishing (modèle) :");
     await expect(page.getByTestId("quick-check-submit")).toBeEnabled();
 
     assertClean(issues);
