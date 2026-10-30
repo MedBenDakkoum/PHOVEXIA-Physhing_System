@@ -80,8 +80,18 @@ export const PROBABILITY_MODALITIES = ["url", "page_text", "screenshot", "metada
 export const DETECTION_SOURCE = {
   model: "Modèle",
   blocklist: "Blocklist",
+  brand_policy: "Règle de marque",
 };
 export const DETECTION_SOURCE_VALUES = Object.keys(DETECTION_SOURCE);
+
+// Brand policy flags (backend scans/services/brand_policy.py). The model
+// verdict is never erased: these labels explain the adjustment.
+export const POLICY_FLAG = {
+  OFFICIAL_BRAND_HOMEPAGE: "Page d'accueil officielle d'une marque protégée",
+  OFFICIAL_DOMAIN_DEEP_LINK: "Lien profond sur un domaine officiel (revue requise)",
+  BRAND_LOOKALIKE: "Domaine ressemblant à une marque protégée",
+};
+export const POLICY_FLAG_VALUES = Object.keys(POLICY_FLAG);
 
 export const NOTIFICATION_KIND = {
   report_decision: "Décision de signalement",

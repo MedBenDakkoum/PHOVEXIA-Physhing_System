@@ -2732,10 +2732,12 @@ components:
       enum:
       - model
       - blocklist
+      - brand_policy
       type: string
       description: |-
         * `model` - Model
         * `blocklist` - Blocklist
+        * `brand_policy` - Brand policy
     HealthCheck:
       type: object
       description: 'One health check: ok + short message + optional machine value.'
@@ -3388,7 +3390,7 @@ components:
           readOnly: true
           nullable: true
           oneOf:
-          - $ref: '#/components/schemas/VerdictEnum'
+          - $ref: '#/components/schemas/ScanVerdictEnum'
           - $ref: '#/components/schemas/NullEnum'
         score:
           type: number
@@ -3586,13 +3588,26 @@ components:
           readOnly: true
           nullable: true
           oneOf:
-          - $ref: '#/components/schemas/VerdictEnum'
+          - $ref: '#/components/schemas/ScanVerdictEnum'
           - $ref: '#/components/schemas/NullEnum'
         score:
           type: number
           format: double
           readOnly: true
           nullable: true
+        model_verdict:
+          readOnly: true
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/ScanVerdictEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        model_score:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+        policy_flags:
+          readOnly: true
         detection_source:
           allOf:
           - $ref: '#/components/schemas/DetectionSourceEnum'
@@ -3652,8 +3667,11 @@ components:
       - finished_at
       - id
       - mode
+      - model_score
+      - model_verdict
       - notes
       - owner_email
+      - policy_flags
       - report
       - reported
       - rescan_of
@@ -3695,13 +3713,26 @@ components:
           readOnly: true
           nullable: true
           oneOf:
-          - $ref: '#/components/schemas/VerdictEnum'
+          - $ref: '#/components/schemas/ScanVerdictEnum'
           - $ref: '#/components/schemas/NullEnum'
         score:
           type: number
           format: double
           readOnly: true
           nullable: true
+        model_verdict:
+          readOnly: true
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/ScanVerdictEnum'
+          - $ref: '#/components/schemas/NullEnum'
+        model_score:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+        policy_flags:
+          readOnly: true
         detection_source:
           allOf:
           - $ref: '#/components/schemas/DetectionSourceEnum'
@@ -3734,7 +3765,10 @@ components:
       - finished_at
       - id
       - mode
+      - model_score
+      - model_verdict
       - owner_email
+      - policy_flags
       - reported
       - score
       - status
@@ -3781,13 +3815,28 @@ components:
           readOnly: true
           nullable: true
           oneOf:
-          - $ref: '#/components/schemas/VerdictEnum'
+          - $ref: '#/components/schemas/ScanVerdictEnum'
           - $ref: '#/components/schemas/NullEnum'
         score:
           type: number
           format: double
           readOnly: true
           nullable: true
+        model_verdict:
+          type: string
+          readOnly: true
+          nullable: true
+        model_score:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+        policy_flags:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+          readOnly: true
         detection_source:
           type: string
           readOnly: true
@@ -3846,8 +3895,11 @@ components:
       - has_screenshot
       - id
       - mode
+      - model_score
+      - model_verdict
       - model_version
       - partial
+      - policy_flags
       - probabilities
       - reason_code
       - report_status
@@ -3885,7 +3937,7 @@ components:
           maxLength: 20
         detection_source:
           type: string
-          maxLength: 10
+          maxLength: 20
         model_version:
           type: string
           default: ''
@@ -3940,6 +3992,16 @@ components:
         * `false_positive` - False Positive
         * `blocked` - Blocked
         * `failed` - Failed
+    ScanVerdictEnum:
+      enum:
+      - phishing
+      - legitimate
+      - uncertain
+      type: string
+      description: |-
+        * `phishing` - Phishing
+        * `legitimate` - Legitimate
+        * `uncertain` - Uncertain
     ScopesEnum:
       enum:
       - scan:create
@@ -4010,16 +4072,6 @@ components:
       - email
       - id
       - role
-    VerdictEnum:
-      enum:
-      - phishing
-      - legitimate
-      - uncertain
-      type: string
-      description: |-
-        * `phishing` - Phishing
-        * `legitimate` - Legitimate
-        * `uncertain` - Uncertain
   securitySchemes:
     ApiKeyAuth:
       type: apiKey

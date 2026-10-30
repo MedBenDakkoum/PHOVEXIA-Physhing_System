@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import socket
+from pathlib import Path
 from unittest import mock
 
 import pytest
@@ -346,13 +348,25 @@ def test_brands_are_admin_only(api_client, viewer, analyst, admin):
 
 
 @pytest.mark.django_db
-def test_seed_brands_loads_the_three_brands(admin):
+def test_seed_brands_activates_only_the_verified_domains(admin):
+    rows = json.loads(
+        (Path(__file__).parent / "seeds" / "brands.json").read_text(encoding="utf-8")
+    )
+    verified = {row["domain"] for row in rows if row["verified"]}
+
     call_command("seed_brands")
-    domains = set(ProtectedBrand.objects.values_list("domain", flat=True))
-    assert domains == {"paypal.com", "microsoft.com", "google.com"}
+
+    active = set(
+        ProtectedBrand.objects.filter(is_active=True).values_list("domain", flat=True)
+    )
+    assert active == verified
+    assert {"google.com", "microsoft.com", "paypal.com"} <= active
+    # Unverified domains are stored but inactive (never influence the policy).
+    assert ProtectedBrand.objects.filter(is_active=False).exists()
     # Idempotent.
+    total = ProtectedBrand.objects.count()
     call_command("seed_brands")
-    assert ProtectedBrand.objects.count() == 3
+    assert ProtectedBrand.objects.count() == total
 
 
 # --- US19 groundwork: lookalike service -------------------------------------

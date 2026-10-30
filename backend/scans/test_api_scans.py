@@ -462,6 +462,10 @@ def test_list_item_fields_are_read_only_projection(auth_client, viewer):
         "status",
         "verdict",
         "score",
+        # US19 (brand policy): raw model output + transparent rule flags.
+        "model_verdict",
+        "model_score",
+        "policy_flags",
         # Step 11 (US41): model vs blocklist.
         "detection_source",
         # Step 12 (US48): which ModelVersion predicted it.
@@ -522,6 +526,10 @@ def test_detail_owner_can_read_his_scan(auth_client, viewer):
         "status",
         "verdict",
         "score",
+        # US19 (brand policy): raw model output + transparent rule flags.
+        "model_verdict",
+        "model_score",
+        "policy_flags",
         # Step 11 (US41): model vs blocklist.
         "detection_source",
         # Step 12 (US48): which ModelVersion predicted it.
