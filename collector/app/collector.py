@@ -184,6 +184,10 @@ class PageCollector:
             accept_downloads=False,
             ignore_https_errors=True,
             service_workers="block",
+            # Spec v1.1: match the language/timezone of the English training
+            # corpus. No User-Agent change, no fingerprint evasion.
+            locale="en-US",
+            timezone_id="UTC",
         )
         self.stats["contexts"] += 1
         self._contexts_since_recycle += 1
@@ -220,6 +224,16 @@ class PageCollector:
                 _make_finished_tracker(page, track, flags, self.settings),
             )
             await cdp.send("Network.enable")
+            # Playwright normalises Accept-Language to "en-US" from `locale`.
+            # Chromium serialises the CDP acceptLanguage and appends the
+            # default q-weight, so "en-US,en" becomes the exact header
+            # "en-US,en;q=0.9" (verified end-to-end via a real echo page).
+            # The User-Agent is re-sent unchanged.
+            user_agent = await page.evaluate("navigator.userAgent")
+            await cdp.send(
+                "Emulation.setUserAgentOverride",
+                {"userAgent": user_agent, "acceptLanguage": "en-US,en"},
+            )
 
             nav_started = time.perf_counter()
             goto_task = asyncio.ensure_future(
