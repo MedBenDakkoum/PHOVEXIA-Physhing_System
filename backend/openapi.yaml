@@ -2553,6 +2553,7 @@ components:
         is_active:
           type: boolean
           readOnly: true
+          default: true
           title: Active
         removed_by_email:
           type: string
@@ -2733,11 +2734,13 @@ components:
       - model
       - blocklist
       - brand_policy
+      - dataset_sample
       type: string
       description: |-
         * `model` - Model
         * `blocklist` - Blocklist
         * `brand_policy` - Brand policy
+        * `dataset_sample` - Dataset sample
     HealthCheck:
       type: object
       description: 'One health check: ok + short message + optional machine value.'

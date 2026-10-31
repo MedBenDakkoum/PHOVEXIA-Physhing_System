@@ -137,7 +137,7 @@ def test_an_expired_token_gives_the_same_400(api_client, make_user):
     token = default_token_generator.make_token(user)
     # PasswordResetTokenGenerator._now() is naive datetime.now(): the mock
     # must stay naive or the subtraction raises TypeError.
-    future = datetime.now() + timedelta(seconds=3600 + 60)  # noqa: DTZ005 - must match Django's naive _now()
+    future = datetime.now() + timedelta(seconds=3600 + 60)
 
     with patch.object(type(default_token_generator), "_now", return_value=future):
         response = api_client.post(

@@ -15,6 +15,11 @@ db.sqlite3
 *.sqlite3.backup-*
 *.sqlite3.old-*
 
+# Uploaded media (screenshots): runtime data, never baked into the image,
+# otherwise every fresh media_volume is seeded with the developer's local
+# files (Docker copies image content into an empty named volume on 1st use).
+media/
+
 # Python caches / test artefacts.
 **/__pycache__/
 **/*.py[cod]

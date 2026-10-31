@@ -37,6 +37,10 @@ x-backend-environment: &backend-environment
   # as a static/media URL.
   MEDIA_ROOT: /app/media
   SCREENSHOT_RETENTION_DAYS: ${SCREENSHOT_RETENTION_DAYS:-30}
+  # Golden-sample bundle for `manage.py demo_setup` / `load_demo_samples`
+  # (docs/DEMO_RUNBOOK.md). Only `web` mounts the host folder READ-ONLY at
+  # this path (see the web volumes); the host side comes from .env.
+  DEMO_SAMPLES_DIR: /app/demo_samples
   # --- collector sandbox (US17 / US26, only the worker reaches it) -------
   # The worker calls http://collector:8000 on collect_net (the collector
   # publishes no port). The overlay collector/docker-compose.collector.yml
@@ -143,6 +147,8 @@ services:
       - models_volume:/app/models:ro
       # Screenshots are read back (never written) by gunicorn.
       - media_volume:/app/media:ro
+      # Golden samples (git-ignored bundle): READ-ONLY, demo_setup only.
+      - ${DEMO_SAMPLES_DIR:-./ml_artifacts/golden}:/app/demo_samples:ro
     expose:
       - "8000"
     depends_on:
@@ -178,6 +184,10 @@ services:
       - models_volume:/app/models:ro
       # The worker WRITES the screenshots captured by the collector.
       - media_volume:/app/media
+      # Golden samples (git-ignored bundle): READ-ONLY. demo_setup runs HERE
+      # (not in web): it writes demo screenshots under media_volume, and web
+      # mounts /app/media read-only on purpose (gunicorn never writes).
+      - ${DEMO_SAMPLES_DIR:-./ml_artifacts/golden}:/app/demo_samples:ro
     # The image HEALTHCHECK probes :8000 (gunicorn): meaningless for a
     # worker, so it is disabled here instead of staying "unhealthy".
     healthcheck:

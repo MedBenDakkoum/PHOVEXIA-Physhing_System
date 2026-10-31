@@ -392,6 +392,22 @@ INFERENCE_URL = os.getenv("INFERENCE_URL", "")
 INFERENCE_API_KEY = os.getenv("INFERENCE_API_KEY", "")
 INFERENCE_TIMEOUT = _float_env("INFERENCE_TIMEOUT", 30.0)
 
+# ---------------------------------------------------------------------------
+# Demo environment (docs/DEMO_RUNBOOK.md). Two independent guards:
+# - ALLOW_DEMO_SETUP=1: demo_setup refuses to run without it (same pattern as
+#   ALLOW_SEED for seed_perf_users) so a shared environment is never seeded
+#   by accident.
+# - DEMO_SAMPLES_DIR: read-only folder holding the git-ignored golden bundle
+#   (golden_samples.csv + 20 .png/.txt). In Docker compose mounts it at
+#   /app/demo_samples; empty falls back to backend/ml_artifacts/golden for
+#   local runs. DEMO_PASSWORD is the login password of the three demo
+#   accounts (kept in .env, never committed); when empty demo_setup
+#   generates a random one and prints it ONCE.
+# ---------------------------------------------------------------------------
+ALLOW_DEMO_SETUP = os.getenv("ALLOW_DEMO_SETUP", "").strip() == "1"
+DEMO_SAMPLES_DIR = os.getenv("DEMO_SAMPLES_DIR", "").strip()
+DEMO_PASSWORD = os.getenv("DEMO_PASSWORD", "")
+
 # Media root for user-facing artefacts (screenshots). Inside the container the
 # full profile mounts a named volume here (worker read-write, web read-only).
 MEDIA_ROOT = Path(os.getenv("MEDIA_ROOT", BASE_DIR / "media"))

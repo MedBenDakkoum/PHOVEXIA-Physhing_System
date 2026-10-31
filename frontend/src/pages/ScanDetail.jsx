@@ -15,6 +15,7 @@ import {
 import { getScan, getScanScreenshot, reportScan } from "../api/scans";
 import {
   CLAIMED_LABEL,
+  DETECTION_SOURCE_NOTE,
   MODALITY_LABEL,
   POLICY_FLAG,
   PROBABILITY_MODALITIES,
@@ -337,6 +338,11 @@ export default function ScanDetail() {
         <div>
           <span className="field-label">Source</span>
           <div style={{ marginTop: 5 }}><DetectionBadge source={scan.detection_source} /></div>
+          {DETECTION_SOURCE_NOTE[scan.detection_source] && (
+            <div className="muted" style={{ fontSize: "0.8rem", marginTop: 2 }} data-testid="detection-source-note">
+              {DETECTION_SOURCE_NOTE[scan.detection_source]}
+            </div>
+          )}
         </div>
         <div>
           <span className="field-label">Signalement</span>
