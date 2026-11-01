@@ -20,15 +20,16 @@ from django.conf import settings
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 MAX_UPLOAD_BYTES = 6 * 1024 * 1024  # the collector already caps screenshots at 5 MB
 
-# Inference contract §2.E input order, exposed to the API under friendly names.
-_BASE_KEYS = (
-    "mobilenet_phishing_probability",
-    "distilbert_phishing_probability",
-    "url_cnn_phishing_probability",
-    "metadata_phishing_probability",
-)
-
-_FRIENDLY_KEYS = ("url", "page_text", "screenshot", "metadata")
+# Inference contract §2.E raw model keys -> API-friendly modality names.
+# The mapping is BY NAME (never by position): the inference service returns the
+# fusion order mobilenet, distilbert, url_cnn, metadata, while the API exposes
+# screenshot, page_text, url, metadata.
+_BASE_KEY_TO_FRIENDLY = {
+    "mobilenet_phishing_probability": "screenshot",
+    "distilbert_phishing_probability": "page_text",
+    "url_cnn_phishing_probability": "url",
+    "metadata_phishing_probability": "metadata",
+}
 
 
 class InferenceError(Exception):
@@ -76,7 +77,8 @@ class InferenceResponse:
         self.prediction: str | None = data.get("prediction")
         self.phishing_probability: float | None = data.get("phishing_probability")
         self.base_probabilities: dict[str, float | None] = {
-            friendly: base.get(key) for friendly, key in zip(_FRIENDLY_KEYS, _BASE_KEYS)
+            friendly: base.get(raw_key)
+            for raw_key, friendly in _BASE_KEY_TO_FRIENDLY.items()
         }
         self.model_bundle_version: str = data.get("model_bundle_version") or ""
         self.reason_code: str | None = data.get("reason_code")

@@ -16,6 +16,7 @@ import { getScan, getScanScreenshot, reportScan } from "../api/scans";
 import {
   CLAIMED_LABEL,
   MODALITY_LABEL,
+  PARTIAL_PROBABILITIES_MESSAGE,
   POLICY_FLAG,
   PROBABILITY_MODALITIES,
   REASON_CODE,
@@ -88,7 +89,7 @@ function fillColour(value, lower = 0.4, upper = 0.7) {
   return "#ef4444";
 }
 
-function ProbabilityBars({ probabilities, thresholds }) {
+function ProbabilityBars({ probabilities, thresholds, partial = false }) {
   const lower = thresholds?.uncertainLower ?? 0.4;
   const upper = thresholds?.phishing ?? 0.7;
   const entries = useMemo(() => {
@@ -108,7 +109,11 @@ function ProbabilityBars({ probabilities, thresholds }) {
           </p>
         </div>
       </div>
-      {available.length === 0 ? (
+      {partial ? (
+        <p className="muted" style={{ margin: 0 }} data-testid="partial-no-probabilities">
+          {PARTIAL_PROBABILITIES_MESSAGE}
+        </p>
+      ) : available.length === 0 ? (
         <p className="muted" style={{ margin: 0 }}>Aucune probabilité disponible pour ce scan.</p>
       ) : (
         <div className="prob-list">
@@ -317,11 +322,11 @@ export default function ScanDetail() {
       <section className="card review-summary scan-summary" aria-label="Résumé du scan">
         <div>
           <span className="field-label">Verdict</span>
-          <div style={{ marginTop: 5 }} data-testid="scan-verdict"><VerdictBadge verdict={scan.verdict} /></div>
+          <div style={{ marginTop: 5 }} data-testid="scan-verdict"><VerdictBadge verdict={scan.verdict} partial={scan.partial} /></div>
         </div>
         <div>
           <span className="field-label">Statut</span>
-          <div style={{ marginTop: 5 }} data-testid="scan-status"><ScanStatusBadge status={scan.status} /></div>
+          <div style={{ marginTop: 5 }} data-testid="scan-status"><ScanStatusBadge status={scan.status} partial={scan.partial} /></div>
         </div>
         <div>
           <span className="field-label">Probabilité de phishing (modèle)</span>
@@ -358,13 +363,26 @@ export default function ScanDetail() {
       )}
 
       {scan.partial && (
-        <div className="alert alert-gold" role="status" style={{ marginTop: 18 }} data-testid="partial-banner">
-          <ShieldAlert size={18} />
-          <span>
-            <strong>Résultat partiel — ce n'est pas un verdict.</strong>
-            {reason ? ` Raison : ${reason}.` : ""} Certaines modalités n'ont pas pu être analysées.
-          </span>
-        </div>
+        <>
+          <div className="alert alert-gold" role="status" style={{ marginTop: 18 }} data-testid="partial-banner">
+            <ShieldAlert size={18} />
+            <span>
+              <strong>Résultat partiel — ce n'est pas un verdict.</strong>
+              {reason ? ` Raison : ${reason}.` : ""} Certaines modalités n'ont pas pu être analysées.
+            </span>
+          </div>
+          <div className="inline-actions" style={{ marginTop: 12 }}>
+            <Button
+              variant="gold"
+              to={`/scans/new?url=${encodeURIComponent(scan.url)}`}
+              icon={RefreshCw}
+              data-testid="scan-relaunch-partial"
+            >
+              Relancer cette adresse
+            </Button>
+            <span className="muted">Cette relance crée un nouveau scan et décompte 1 de votre quota.</span>
+          </div>
+        </>
       )}
 
       {scan.status === "failed" && (
@@ -493,7 +511,7 @@ export default function ScanDetail() {
             )}
           </section>
 
-          <ProbabilityBars probabilities={scan.probabilities} />
+          <ProbabilityBars probabilities={scan.probabilities} partial={scan.partial} />
 
           <section className="card card-pad" aria-labelledby="signals-title">
             <div className="card-head">
