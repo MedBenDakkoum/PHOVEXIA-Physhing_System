@@ -254,10 +254,10 @@ export default function ScansHistory() {
                         </div>
                       </td>
                       <td data-label="Statut">
-                        <ScanStatusBadge status={scan.status} />
+                        <ScanStatusBadge status={scan.status} partial={scan.partial} />
                       </td>
                       <td data-label="Verdict">
-                        <VerdictBadge verdict={scan.verdict} />
+                        <VerdictBadge verdict={scan.verdict} partial={scan.partial} />
                       </td>
                       <td data-label="Probabilité de phishing (modèle)" className="tabular">
                         {scoreText(scan.score)} <span className="muted" style={{ fontSize: "0.8rem" }}>0=sûr,1=dangereux</span>

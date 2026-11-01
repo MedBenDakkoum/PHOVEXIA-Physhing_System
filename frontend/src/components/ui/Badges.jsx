@@ -13,7 +13,16 @@ import {
   UserPlus,
   UserX,
 } from "lucide-react";
-import { AUDIT_ACTIONS, CLAIMED_LABEL, DETECTION_SOURCE, ROLES, SCAN_STATUS, VERDICT } from "../../api/constants";
+import {
+  AUDIT_ACTIONS,
+  CLAIMED_LABEL,
+  DETECTION_SOURCE,
+  PARTIAL_STATUS_LABEL,
+  PARTIAL_VERDICT_LABEL,
+  ROLES,
+  SCAN_STATUS,
+  VERDICT,
+} from "../../api/constants";
 
 // Clés = valeurs de Role.choices du backend : admin | analyst | end_user
 // ("viewer" n'existe pas côté backend ; on le garde comme alias défensif).
@@ -65,7 +74,8 @@ const STATUS_TONE = {
   failed: "neutral",
 };
 
-export function VerdictBadge({ verdict }) {
+export function VerdictBadge({ verdict, partial = false }) {
+  if (partial) return <span className="badge">{PARTIAL_VERDICT_LABEL}</span>;
   if (!verdict) return <span className="badge">—</span>;
   return (
     <span className={`badge ${toneClass(VERDICT_TONE[verdict])}`}>
@@ -74,8 +84,11 @@ export function VerdictBadge({ verdict }) {
   );
 }
 
-export function ScanStatusBadge({ status }) {
+export function ScanStatusBadge({ status, partial = false }) {
   if (!status) return <span className="badge">—</span>;
+  if (partial && status === "detected") {
+    return <span className="badge">{PARTIAL_STATUS_LABEL}</span>;
+  }
   return (
     <span className={`badge ${toneClass(STATUS_TONE[status])}`}>
       {SCAN_STATUS[status]?.label || status}

@@ -304,7 +304,10 @@ def test_complete_phishing_result_stores_every_real_pipeline_field(
         "subdomain": "",
     }
     assert scan.probabilities["fusion"] == pytest.approx(0.9)
-    assert scan.probabilities["url"] == pytest.approx(0.91)
+    # By-name mapping: url_cnn -> url, mobilenet -> screenshot.
+    assert scan.probabilities["url"] == pytest.approx(0.93)
+    assert scan.probabilities["screenshot"] == pytest.approx(0.91)
+    assert scan.probabilities["page_text"] == pytest.approx(0.88)
     assert scan.probabilities["metadata"] == pytest.approx(0.70)
     assert scan.screenshot_path == f"screenshots/{scan.public_id}.png"
     assert (media_root / scan.screenshot_path).is_file()

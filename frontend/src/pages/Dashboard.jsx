@@ -97,8 +97,8 @@ function ScanOverview() {
                     <span className="faint">{relativeTime(scan.created_at)}</span>
                   </span>
                   <span className="dash-scan-badges">
-                    <VerdictBadge verdict={scan.verdict} />
-                    <ScanStatusBadge status={scan.status} />
+                    <VerdictBadge verdict={scan.verdict} partial={scan.partial} />
+                    <ScanStatusBadge status={scan.status} partial={scan.partial} />
                   </span>
                 </Link>
               </li>

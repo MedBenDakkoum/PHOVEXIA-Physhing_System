@@ -40,6 +40,13 @@ export const VERDICT = {
 };
 export const VERDICT_VALUES = Object.keys(VERDICT);
 
+// Scans with partial=true did not receive every modality: they must never be
+// displayed as a confident "Incertain" verdict.
+export const PARTIAL_VERDICT_LABEL = "Analyse incomplète";
+export const PARTIAL_STATUS_LABEL = "Terminée (incomplète)";
+export const PARTIAL_PROBABILITIES_MESSAGE =
+  "Aucune probabilité : le modèle n'a pas reçu toutes les entrées (page non chargée, protection anti-robot ou délai dépassé).";
+
 export const REASON_CODE = {
   COLLECTOR_BUSY: "Service de collecte momentanément occupé",
   COLLECTOR_TIMEOUT: "Délai de collecte dépassé",
