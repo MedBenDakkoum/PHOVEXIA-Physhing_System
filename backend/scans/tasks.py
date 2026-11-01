@@ -59,7 +59,7 @@ _TIMEOUT_MESSAGE = "timeout"  # task started, worker died or analysis hung
 _QUEUE_TIMEOUT_MESSAGE = "queue_timeout"  # task never started
 
 # ISO-6.5 / US26: up to 5 attempts, separated by 5, 15, 30 then 60 s.
-# One attempt is bounded by COLLECTOR_TIMEOUT + INFERENCE_TIMEOUT (~50 s), so
+# One attempt is bounded by COLLECTOR_TIMEOUT + INFERENCE_TIMEOUT (~60 s), so
 # the whole retry window stays under the 10 min SCAN_STUCK_MINUTES reaper.
 MAX_SCAN_ATTEMPTS = 5
 RETRY_DELAYS = (5, 15, 30, 60)

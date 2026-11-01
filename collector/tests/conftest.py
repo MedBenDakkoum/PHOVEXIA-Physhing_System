@@ -18,6 +18,7 @@ os.environ.setdefault("COLLECTOR_API_KEY", "test-collector-key-20261025")
 os.environ.setdefault("COLLECTOR_ENV", "test")
 os.environ.setdefault("COLLECTOR_ALLOW_PRIVATE_HOSTS", "testserver")
 os.environ.setdefault("COLLECTOR_TIMEOUT_S", "5")
+os.environ.setdefault("COLLECTOR_LOAD_GRACE_S", "1.5")
 os.environ.setdefault("COLLECTOR_MAX_CONCURRENCY", "1")
 os.environ.setdefault("COLLECTOR_PROXY_PORT", "3129")
 
@@ -50,6 +51,11 @@ DOWNLOAD_PAGE_HTML = (
     "<body><p>COLLECT-DL-OWNER</p>"
     "<script>location.href = '/file.txt';</script></body></html>"
 )
+STALL_HTML = (
+    "<!doctype html><html><head><title>stall</title></head>"
+    "<body><p>COLLECT-STALL-MARKER</p>"
+    "<img src='/hang' alt='never finishes'></body></html>"
+)
 
 
 def base_url(port: int) -> str:
@@ -77,6 +83,11 @@ class _Handler(BaseHTTPRequestHandler):
         elif path == "/slow":
             time.sleep(8)
             self._send_html(MAIN_HTML)
+        elif path == "/stall":
+            self._send_html(STALL_HTML)
+        elif path == "/hang":
+            time.sleep(8)
+            self._send_bytes(b"", "image/gif")
         elif path == "/big":
             self._send_bytes(b"x" * 6_000_000, "application/octet-stream")
         elif path == "/popup":

@@ -21,6 +21,7 @@ async def test_complete_capture_of_a_simple_page(env, web_port):
     data = response.json()
     assert data["status"] == "complete"
     assert data["reason_code"] is None
+    assert data["load_complete"] is True
     assert data["http_status"] == 200
     assert data["final_url"] == f"{base}/"
     assert data["redirect_chain"] == []
@@ -79,10 +80,40 @@ async def test_slow_page_hits_the_total_timeout(env, web_port):
     data = response.json()
     assert data["status"] == "partial"
     assert data["reason_code"] == "TIMEOUT"
+    assert data["load_complete"] is False
     assert data["text"] is None
     assert data["screenshot_png_base64"] is None
     assert data["timings_ms"]["total"] >= 5000
     assert data["tls"]["error"] == "not_probed"
+
+
+async def test_load_never_fires_still_returns_a_complete_capture(env, web_port):
+    """A hanging subresource must not burn the whole deadline after DOM ready."""
+    base = base_url(web_port)
+    response = await env.client.post(
+        "/collect", json={"url": f"{base}/stall"}, headers=AUTH
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "complete"
+    assert data["reason_code"] is None
+    assert data["load_complete"] is False
+    assert "COLLECT-STALL-MARKER" in data["text"]
+    assert data["screenshot_png_base64"] is not None
+    assert data["timings_ms"]["navigation"] is not None
+
+
+async def test_dom_never_loads_still_reports_a_timeout(env, web_port):
+    """The DOM deadline is unchanged: no DCL inside the budget means TIMEOUT."""
+    base = base_url(web_port)
+    response = await env.client.post(
+        "/collect", json={"url": f"{base}/slow"}, headers=AUTH
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "partial"
+    assert data["reason_code"] == "TIMEOUT"
+    assert data["load_complete"] is False
 
 
 async def test_oversized_document_is_refused(env, web_port):

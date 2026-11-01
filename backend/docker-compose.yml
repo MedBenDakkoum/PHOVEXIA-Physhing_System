@@ -43,7 +43,7 @@ x-backend-environment: &backend-environment
   # attaches the worker to that network.
   COLLECTOR_URL: ${COLLECTOR_URL:-http://collector:8000}
   COLLECTOR_API_KEY: ${COLLECTOR_API_KEY:-}
-  COLLECTOR_TIMEOUT: ${COLLECTOR_TIMEOUT:-20}
+  COLLECTOR_TIMEOUT: ${COLLECTOR_TIMEOUT:-30}
   # --- inference service (internal network only, never on the host) -----
   # The Celery worker calls http://inference:8000 with the shared secret
   # header; the real pipeline (collector + inference) is wired in the

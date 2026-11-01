@@ -24,6 +24,8 @@ MAX_REDIRECTS = 10
 VIEWPORT_WIDTH = 1280
 VIEWPORT_HEIGHT = 960
 SCREENSHOT_TIMEOUT_MS = 10_000
+# Only used when the "load" event did not fire inside COLLECTOR_LOAD_GRACE_S.
+LOAD_SETTLE_S = 0.3
 
 
 async def _close_quietly(page: Any) -> None:
@@ -239,7 +241,7 @@ class PageCollector:
             goto_task = asyncio.ensure_future(
                 page.goto(
                     url,
-                    wait_until="load",
+                    wait_until="domcontentloaded",
                     timeout=(self.settings.timeout_s + 2) * 1000,
                 )
             )
@@ -255,6 +257,14 @@ class PageCollector:
                 goto_task.cancel()
             await asyncio.gather(goto_task, return_exceptions=True)
             timings["navigation"] = int((time.perf_counter() - nav_started) * 1000)
+
+            # DOM is parsed; give the "load" event a bounded grace instead of
+            # waiting for it until the total deadline (heavy legit pages).
+            load_complete = False
+            if nav_error is None:
+                load_complete = await self._wait_for_load(page)
+                if not load_complete:
+                    await asyncio.sleep(LOAD_SETTLE_S)
 
             final_url = self._final_url(page, url)
             chain = _redirect_chain(response)
@@ -294,6 +304,7 @@ class PageCollector:
                 "fld": features.fld,
                 "subdomain": features.subdomain,
                 "screenshot_png_base64": screenshot,
+                "load_complete": load_complete,
                 "tls": tls,
                 "timings_ms": {
                     "total": int((time.perf_counter() - started) * 1000),
@@ -308,6 +319,19 @@ class PageCollector:
                 goto_task.cancel()
                 await asyncio.gather(goto_task, return_exceptions=True)
             await context.close()
+
+    async def _wait_for_load(self, page: Any) -> bool:
+        """Wait at most COLLECTOR_LOAD_GRACE_S for the load event, never fatal."""
+        try:
+            await page.wait_for_load_state(
+                "load", timeout=int(self.settings.load_grace_s * 1000)
+            )
+        except PlaywrightTimeoutError:
+            return False
+        except PlaywrightError:
+            logger.debug("load state unavailable", exc_info=True)
+            return False
+        return True
 
     def _final_url(self, page: Any, requested: str) -> str:
         try:

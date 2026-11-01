@@ -41,5 +41,6 @@ class CollectResponse(BaseModel):
     fld: str | None = None
     subdomain: str | None = None
     screenshot_png_base64: str | None = None
+    load_complete: bool = False
     tls: TlsInfo
     timings_ms: TimingsInfo
