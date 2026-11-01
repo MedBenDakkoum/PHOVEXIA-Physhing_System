@@ -68,6 +68,7 @@ services:
       COLLECTOR_ENV: test
       COLLECTOR_ALLOW_PRIVATE_HOSTS: testserver
       COLLECTOR_TIMEOUT_S: "5"
+      COLLECTOR_LOAD_GRACE_S: "1.5"
       COLLECTOR_MAX_CONCURRENCY: "1"
       COLLECTOR_PROXY_PORT: "3129"
     extra_hosts:

@@ -387,7 +387,7 @@ MODELS_DIR = Path(os.getenv("MODELS_DIR", BASE_DIR / "models"))
 # ---------------------------------------------------------------------------
 COLLECTOR_URL = os.getenv("COLLECTOR_URL", "")
 COLLECTOR_API_KEY = os.getenv("COLLECTOR_API_KEY", "")
-COLLECTOR_TIMEOUT = _float_env("COLLECTOR_TIMEOUT", 20.0)
+COLLECTOR_TIMEOUT = _float_env("COLLECTOR_TIMEOUT", 30.0)
 INFERENCE_URL = os.getenv("INFERENCE_URL", "")
 INFERENCE_API_KEY = os.getenv("INFERENCE_API_KEY", "")
 INFERENCE_TIMEOUT = _float_env("INFERENCE_TIMEOUT", 30.0)
@@ -529,14 +529,14 @@ SPECTACULAR_SETTINGS = {
 
 # Celery (Step 6) - broker = Redis (REDIS_URL in .env)
 # JSON only: accept_content refuses pickle, so a crafted/old message can never
-# execute code in the worker. Time limits: soft 60 s (task may clean up),
-# hard 90 s (worker is killed).
+# execute code in the worker. Time limits: soft 90 s (task may clean up),
+# hard 120 s (worker is killed).
 CELERY_BROKER_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_ACCEPT_CONTENT = ["json"]
-# One run_scan attempt is bounded by COLLECTOR_TIMEOUT (20 s) plus
-# INFERENCE_TIMEOUT (30 s) plus screenshot work (~50 s worst case). Retries
+# One run_scan attempt is bounded by COLLECTOR_TIMEOUT (30 s) plus
+# INFERENCE_TIMEOUT (30 s) plus screenshot work (~30 s worst case). Retries
 # are separate tasks with a countdown, so these limits only bound ONE attempt:
 # 90 s soft leaves enough margin before the 120 s hard kill.
 CELERY_TASK_SOFT_TIME_LIMIT = 90

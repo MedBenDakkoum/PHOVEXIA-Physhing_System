@@ -30,3 +30,20 @@ def test_test_mode_accepts_a_hostname_allowlist():
         }
     )
     assert settings.allow_private_hosts == frozenset({"testserver", "other"})
+
+
+def test_load_grace_defaults_to_five_and_is_validated():
+    default = Settings.from_env({"COLLECTOR_API_KEY": "k"})
+    assert default.load_grace_s == 5.0
+    assert default.timeout_s == 20.0
+
+    accepted = Settings.from_env(
+        {"COLLECTOR_API_KEY": "k", "COLLECTOR_LOAD_GRACE_S": "2.5"}
+    )
+    assert accepted.load_grace_s == 2.5
+
+    for raw in ("0", "-1", "abc", "nan", "inf"):
+        with pytest.raises(ConfigurationError):
+            Settings.from_env(
+                {"COLLECTOR_API_KEY": "k", "COLLECTOR_LOAD_GRACE_S": raw}
+            )

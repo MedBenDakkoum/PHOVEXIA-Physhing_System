@@ -37,6 +37,7 @@ def _timeout_payload(url: str, settings: Settings) -> dict[str, Any]:
         "fld": features.fld,
         "subdomain": features.subdomain,
         "screenshot_png_base64": None,
+        "load_complete": False,
         "tls": tlsprobe.empty_info("not_probed"),
         "timings_ms": {
             "total": int(settings.timeout_s * 1000),
