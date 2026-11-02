@@ -3,6 +3,9 @@
 *.env
 !.env.example
 
+# Notes personnelles (contient un mot de passe en clair) — ne jamais versionner
+cmd.txt
+
 # Environnement virtuel
 phishing_env/
 venv/
@@ -47,6 +50,7 @@ build/
 .DS_Store
 Thumbs.db
 *.md
+!COMMANDS.md
 *.sqlite3*
 *.sql.backup*
 
