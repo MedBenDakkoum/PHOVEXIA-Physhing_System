@@ -29,6 +29,10 @@ class Scan(models.Model):
         MODEL = "model", "Model"
         BLOCKLIST = "blocklist", "Blocklist"
         BRAND_POLICY = "brand_policy", "Brand policy"
+        # Demo environment (docs/DEMO_RUNBOOK.md): the verdict was produced by
+        # load_demo_samples from the stored golden-sample inputs (Phish360
+        # test split). The page was NEVER visited: no collector ran.
+        DATASET_SAMPLE = "dataset_sample", "Dataset sample"
 
     # Statuses: Submitted -> Analyzing -> Detected/Failed -> Under Review/False Positive -> Confirmed/Blocked
     class Status(models.TextChoices):
@@ -118,6 +122,12 @@ class Scan(models.Model):
         "Screenshot path", max_length=500, blank=True, default=""
     )
     collected_at = models.DateTimeField("Collected at", null=True, blank=True)
+    # Demo (docs/DEMO_RUNBOOK.md): id of the golden sample that produced this
+    # row ("" for every real scan). Makes load_demo_samples idempotent and is
+    # never exposed as an identifier to clients.
+    demo_sample_id = models.CharField(
+        "Demo sample ID", max_length=64, blank=True, default="", db_index=True
+    )
     # Step 10 (US34 / BR-04): human review outcome. Owner-facing data never
     # includes the analyst identity, only the decision itself (ISO-6.6).
     reviewed_by = models.ForeignKey(

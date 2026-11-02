@@ -88,8 +88,15 @@ export const DETECTION_SOURCE = {
   model: "Modèle",
   blocklist: "Blocklist",
   brand_policy: "Règle de marque",
+  dataset_sample: "Échantillon du jeu de test (Phish360)",
 };
 export const DETECTION_SOURCE_VALUES = Object.keys(DETECTION_SOURCE);
+
+// Shown under the detection badge when the verdict comes from the golden
+// sample bundle (dataset_sample): the original URL was never visited.
+export const DETECTION_SOURCE_NOTE = {
+  dataset_sample: "l'adresse d'origine peut être hors service; aucun accès au site",
+};
 
 // Brand policy flags (backend scans/services/brand_policy.py). The model
 // verdict is never erased: these labels explain the adjustment.
