@@ -56,11 +56,12 @@ WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
 COPY . .
 
-# Entrpoint must be executable; static/models are named-volume mount points
-# whose ownership is copied into the volume on first use, so collectstatic
-# (running as `app`) can write into static_volume.
+# Entrpoint must be executable; static/models/media are named-volume mount
+# points whose ownership is copied into the volume on first use, so
+# collectstatic and the demo screenshot writer (running as `app`) can write
+# into static_volume / media_volume.
 RUN chmod +x /app/deploy/docker-entrypoint.sh \
-    && mkdir -p /app/staticfiles /app/models \
+    && mkdir -p /app/staticfiles /app/models /app/media \
     && chown -R app:app /app
 
 USER app

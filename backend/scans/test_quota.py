@@ -6,8 +6,7 @@ The same suite runs on SQLite and PostgreSQL (see HANDOFF.md for commands);
 the row-lock test asserts FOR UPDATE on PostgreSQL and documents the
 SQLite no-op.
 """
-from datetime import datetime, timedelta
-from datetime import timezone as dt_timezone
+from datetime import UTC, datetime, timedelta
 from unittest import mock
 
 import pytest
@@ -27,7 +26,7 @@ from scans.services.quota import (
 )
 
 # Fixed "now": noon UTC on a Wednesday. TIME_ZONE is UTC by default.
-NOW = datetime(2026, 10, 14, 12, 0, 0, tzinfo=dt_timezone.utc)
+NOW = datetime(2026, 10, 14, 12, 0, 0, tzinfo=UTC)
 
 
 def freeze(now=NOW):
@@ -62,7 +61,7 @@ def test_19_used_is_allowed(make_user):
     assert status.limit == settings.SCAN_DAILY_QUOTA
     assert status.used == 19
     assert status.remaining == 1
-    assert status.reset_at == datetime(2026, 10, 15, 0, 0, 0, tzinfo=dt_timezone.utc)
+    assert status.reset_at == datetime(2026, 10, 15, 0, 0, 0, tzinfo=UTC)
 
 
 @pytest.mark.django_db
@@ -74,7 +73,7 @@ def test_20_used_is_refused(make_user):
     exc = excinfo.value
     assert exc.limit == settings.SCAN_DAILY_QUOTA
     assert exc.used == 20
-    assert exc.reset_at == datetime(2026, 10, 15, 0, 0, 0, tzinfo=dt_timezone.utc)
+    assert exc.reset_at == datetime(2026, 10, 15, 0, 0, 0, tzinfo=UTC)
     assert "20/20" in str(exc)
 
 
@@ -115,8 +114,8 @@ def test_yesterdays_scans_do_not_count(make_user):
 @pytest.mark.django_db
 def test_day_rollover_just_before_and_after_midnight(make_user):
     user = make_user()
-    just_before = datetime(2026, 10, 14, 23, 59, 59, tzinfo=dt_timezone.utc)
-    just_after = datetime(2026, 10, 15, 0, 0, 1, tzinfo=dt_timezone.utc)
+    just_before = datetime(2026, 10, 14, 23, 59, 59, tzinfo=UTC)
+    just_after = datetime(2026, 10, 15, 0, 0, 1, tzinfo=UTC)
     make_scan(user, created_at=just_before)
     with freeze(just_before):
         assert get_quota_status(user).used == 1
@@ -189,7 +188,7 @@ def test_get_quota_status_values(make_user):
     assert status.limit == settings.SCAN_DAILY_QUOTA
     assert status.used == 3
     assert status.remaining == settings.SCAN_DAILY_QUOTA - 3
-    assert status.reset_at == datetime(2026, 10, 15, 0, 0, 0, tzinfo=dt_timezone.utc)
+    assert status.reset_at == datetime(2026, 10, 15, 0, 0, 0, tzinfo=UTC)
 
 
 # --- 429 helper -------------------------------------------------------------
@@ -199,7 +198,7 @@ def test_quota_exceeded_response_is_429_with_retry_after():
     exc = QuotaExceeded(
         limit=20,
         used=20,
-        reset_at=datetime(2026, 10, 15, 0, 0, 0, tzinfo=dt_timezone.utc),
+        reset_at=datetime(2026, 10, 15, 0, 0, 0, tzinfo=UTC),
     )
     with freeze():
         response = quota_exceeded_response(exc)
@@ -250,8 +249,8 @@ def test_day_boundary_uses_project_timezone(make_user, settings):
     settings.TIME_ZONE = "Africa/Tunis"
     user = make_user()
     # 22:30 UTC = 23:30 Tunis, same local day; 23:30 UTC = 00:30 Tunis, next day.
-    late_evening = datetime(2026, 10, 14, 22, 30, 0, tzinfo=dt_timezone.utc)
-    just_after_local_midnight = datetime(2026, 10, 14, 23, 30, 0, tzinfo=dt_timezone.utc)
+    late_evening = datetime(2026, 10, 14, 22, 30, 0, tzinfo=UTC)
+    just_after_local_midnight = datetime(2026, 10, 14, 23, 30, 0, tzinfo=UTC)
     make_scan(user, created_at=late_evening)
     with freeze(late_evening):
         assert get_quota_status(user).used == 1

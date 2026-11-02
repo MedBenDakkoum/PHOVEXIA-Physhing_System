@@ -66,10 +66,15 @@ def _day_bounds(now: datetime) -> tuple[datetime, datetime]:
 
 
 def _count_today(user: User, start: datetime, end: datetime) -> int:
-    """Count the user's scans created in [start, end), all statuses."""
+    """Count the user's scans created in [start, end), all statuses.
+
+    Demo scans (detection_source=dataset_sample, docs/DEMO_RUNBOOK.md) are
+    NEVER counted: they are pre-loaded golden samples, not user submissions,
+    so a demo environment must not consume anyone's daily quota (BR-01).
+    """
     return Scan.objects.filter(
         owner=user, created_at__gte=start, created_at__lt=end
-    ).count()
+    ).exclude(detection_source=Scan.DetectionSource.DATASET_SAMPLE).count()
 
 
 def get_quota_status(user: User) -> QuotaStatus:

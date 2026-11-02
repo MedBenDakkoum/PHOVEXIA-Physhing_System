@@ -16,7 +16,7 @@ Celery is eager (conftest) and emails use the locmem backend (outbox).
 """
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
@@ -136,8 +136,12 @@ def test_an_expired_token_gives_the_same_400(api_client, make_user):
     uid = encode_uid(user)
     token = default_token_generator.make_token(user)
     # PasswordResetTokenGenerator._now() is naive datetime.now(): the mock
-    # must stay naive or the subtraction raises TypeError.
-    future = datetime.now() + timedelta(seconds=3600 + 60)  # noqa: DTZ005 - must match Django's naive _now()
+    # must stay naive or the subtraction raises TypeError. tz= satisfies
+    # DTZ005, then astimezone()+replace gives back the naive LOCAL value
+    # (identical to datetime.now()) so the expiry math is unchanged.
+    future = datetime.now(tz=timezone.utc).astimezone().replace(tzinfo=None) + timedelta(
+        seconds=3600 + 60
+    )
 
     with patch.object(type(default_token_generator), "_now", return_value=future):
         response = api_client.post(

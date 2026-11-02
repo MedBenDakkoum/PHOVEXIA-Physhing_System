@@ -64,3 +64,6 @@ frontend/reports/
 frontend/test-results/
 frontend/playwright-report/
 tmp_*
+# Database backups
+backup.sql
+backup_phishing.sql
