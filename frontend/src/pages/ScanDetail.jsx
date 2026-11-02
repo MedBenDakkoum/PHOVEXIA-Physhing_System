@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -89,7 +89,64 @@ function fillColour(value, lower = 0.4, upper = 0.7) {
   return "#ef4444";
 }
 
-function ProbabilityBars({ probabilities, thresholds, partial = false }) {
+function BrandExplanationDialog({ dialogRef, flags, scan }) {
+  const verdictLabel = VERDICT[scan.verdict]?.label || scan.verdict || "—";
+  const modelLabel = VERDICT[scan.model_verdict]?.label || scan.model_verdict || "—";
+
+  return (
+    <dialog
+      ref={dialogRef}
+      className="brand-explain-dialog"
+      aria-labelledby="brand-explain-title"
+      data-testid="brand-explanation-dialog"
+    >
+      <div className="brand-explain-head">
+        <h2 id="brand-explain-title">Pourquoi ce verdict ?</h2>
+      </div>
+      <div className="brand-explain-body">
+        {flags.map((flag, index) => {
+          if (flag.code === "OFFICIAL_BRAND_HOMEPAGE") {
+            const domain = flag.brand || scan.domain;
+            return (
+              <div key={`${flag.code}-${index}`}>
+                <p>Ce site est la page d'accueil officielle de <b>{domain}</b>, un domaine que nous avons vérifié.</p>
+                <p>Notre IA a appris sur un jeu de données où presque toutes les pages de grandes marques étaient des imitations. Elle se méfie donc à tort de leurs vrais sites : c'est pourquoi certaines barres sont élevées.</p>
+                <p>Nous avons ajouté une vérification du nom de domaine officiel. Le résultat brut du modèle reste affiché pour que tout soit transparent.</p>
+              </div>
+            );
+          }
+          if (flag.code === "OFFICIAL_DOMAIN_DEEP_LINK") {
+            return (
+              <p key={`${flag.code}-${index}`}>
+                Ce lien appartient au domaine officiel de <b>{flag.brand || scan.domain}</b>, mais ce n'est pas sa page d'accueil. Un lien profond peut rediriger ailleurs : nous ne le validons pas automatiquement, un analyste peut l'examiner.
+              </p>
+            );
+          }
+          if (flag.code === "BRAND_LOOKALIKE") {
+            const brand = flag.brand_name || flag.brand;
+            return (
+              <p key={`${flag.code}-${index}`}>
+                {brand
+                  ? <>Ce nom de domaine ressemble à celui de la marque <b>{brand}</b> sans être le sien. C'est une technique courante d'imitation : un analyste va examiner ce cas.</>
+                  : "Ce nom de domaine ressemble à celui d'une marque protégée sans être le sien. C'est une technique courante d'imitation : un analyste va examiner ce cas."}
+              </p>
+            );
+          }
+          return null;
+        })}
+        <p className="brand-explain-outcome">Verdict final : <b>{verdictLabel}</b></p>
+        <p className="brand-explain-outcome">Modèle seul : <b>{modelLabel}</b> ({scoreText(scan.model_score)})</p>
+      </div>
+      <div className="brand-explain-foot">
+        <Button variant="ghost" onClick={() => dialogRef.current?.close()} data-testid="brand-explanation-close">
+          Fermer
+        </Button>
+      </div>
+    </dialog>
+  );
+}
+
+function ProbabilityBars({ probabilities, thresholds, partial = false, headerAction = null }) {
   const lower = thresholds?.uncertainLower ?? 0.4;
   const upper = thresholds?.phishing ?? 0.7;
   const entries = useMemo(() => {
@@ -108,6 +165,7 @@ function ProbabilityBars({ probabilities, thresholds, partial = false }) {
             <em>{thresholds ? "seuils de l'API" : "seuils par défaut"} : {lower} (incertain bas) / {upper} (phishing) — 0 = sûr, 1 = dangereux</em>.
           </p>
         </div>
+        {headerAction}
       </div>
       {partial ? (
         <p className="muted" style={{ margin: 0 }} data-testid="partial-no-probabilities">
@@ -155,6 +213,17 @@ export default function ScanDetail() {
   const [comment, setComment] = useState("");
   const [reportError, setReportError] = useState("");
   const [reporting, setReporting] = useState(false);
+  const detailsButtonRef = useRef(null);
+  const detailsDialogRef = useRef(null);
+  const hasPolicyFlags = Array.isArray(scan?.policy_flags) && scan.policy_flags.length > 0;
+
+  useEffect(() => {
+    const dialog = detailsDialogRef.current;
+    if (!dialog) return undefined;
+    const restoreFocus = () => detailsButtonRef.current?.focus();
+    dialog.addEventListener("close", restoreFocus);
+    return () => dialog.removeEventListener("close", restoreFocus);
+  }, [hasPolicyFlags]);
 
   useEffect(() => {
     let active = true;
@@ -296,7 +365,7 @@ export default function ScanDetail() {
 
   const reason = scan.reason_code ? REASON_CODE[scan.reason_code] || scan.reason_code : null;
   const signals = Object.entries(scan.signals || {});
-  const policyFlags = Array.isArray(scan.policy_flags) ? scan.policy_flags : [];
+  const policyFlags = hasPolicyFlags ? scan.policy_flags : [];
   const modelVerdictLabel =
     VERDICT[scan.model_verdict]?.label || scan.model_verdict || "—";
   const canReport =
@@ -511,7 +580,22 @@ export default function ScanDetail() {
             )}
           </section>
 
-          <ProbabilityBars probabilities={scan.probabilities} partial={scan.partial} />
+          <ProbabilityBars
+            probabilities={scan.probabilities}
+            partial={scan.partial}
+            headerAction={policyFlags.length > 0 ? (
+              <button
+                ref={detailsButtonRef}
+                type="button"
+                className="btn btn-ghost btn-sm"
+                aria-haspopup="dialog"
+                data-testid="brand-details-open"
+                onClick={() => detailsDialogRef.current?.showModal()}
+              >
+                Détails
+              </button>
+            ) : null}
+          />
 
           <section className="card card-pad" aria-labelledby="signals-title">
             <div className="card-head">
@@ -608,6 +692,14 @@ export default function ScanDetail() {
           </section>
         </aside>
       </div>
+
+      {policyFlags.length > 0 && (
+        <BrandExplanationDialog
+          dialogRef={detailsDialogRef}
+          flags={policyFlags}
+          scan={scan}
+        />
+      )}
     </>
   );
 }
