@@ -28,7 +28,7 @@ from django.core.management.base import CommandError
 from audit.models import AuditLog
 from controlpanel.models import ModelVersion
 from scans.models import Scan
-from scans.services.inference_client import _BASE_KEYS, InferenceResponse
+from scans.services.inference_client import InferenceResponse
 from scans.services.quota import check_quota, get_quota_status
 
 User = get_user_model()
@@ -162,7 +162,22 @@ def make_fake_inference(rows_by_url, offset=0.0, calls=None):
                     }
                 )
             row = rows_by_url[url]
-            base = {key: float(row[key]) + offset for key in _BASE_KEYS}
+            # Raw inference keys -> their golden CSV column, BY NAME (the
+            # InferenceResponse converts them to friendly modality names).
+            base = {
+                "mobilenet_phishing_probability": (
+                    float(row["mobilenet_phishing_probability"]) + offset
+                ),
+                "distilbert_phishing_probability": (
+                    float(row["distilbert_phishing_probability"]) + offset
+                ),
+                "url_cnn_phishing_probability": (
+                    float(row["url_cnn_phishing_probability"]) + offset
+                ),
+                "metadata_phishing_probability": (
+                    float(row["metadata_phishing_probability"]) + offset
+                ),
+            }
             fusion = float(row["fusion_mlp_phishing_probability"]) + offset
             return InferenceResponse(
                 {
@@ -248,7 +263,36 @@ def test_load_uses_stored_inputs_and_the_normal_workflow(
     )  # 4 x (SUBMITTED->ANALYZING + ANALYZING->...) at minimum
 
 
-# --- 2. mismatch detection (1e-4 tolerance) ---------------------------------
+# --- 2. by-name mapping (a positional mapping must fail) --------------------
+
+
+@pytest.mark.django_db
+def test_golden_comparison_maps_by_name_not_by_position(
+    golden_dir, media_root, make_user, monkeypatch
+):
+    """The 4 golden columns carry DISTINCT values (0.91/0.92/0.93/0.94 for T1):
+    a loader that zipped them by position would compare mobilenet (0.91) with
+    the url probability (0.93) and report a mismatch. By name, nothing is
+    reported and each stored modality keeps its own value."""
+    user = make_user(email="demo.owner@example.com")
+    rows_by_url = {row["URL"]: row for row in GOLDEN_ROWS}
+    monkeypatch.setattr(
+        "scans.management.commands.load_demo_samples.InferenceClient",
+        make_fake_inference(rows_by_url),
+    )
+    out = io.StringIO()
+    run_load(golden_dir, user.email, count=1, stdout=out)
+    text = out.getvalue()
+    assert "MISMATCH" not in text
+    assert "1 created, 0 skipped, 0 failed, 0 mismatch(es)" in text
+    scan = Scan.objects.get(demo_sample_id="T1")
+    assert scan.probabilities["screenshot"] == pytest.approx(0.91)
+    assert scan.probabilities["page_text"] == pytest.approx(0.92)
+    assert scan.probabilities["url"] == pytest.approx(0.93)
+    assert scan.probabilities["metadata"] == pytest.approx(0.94)
+
+
+# --- 3. mismatch detection (1e-4 tolerance) ---------------------------------
 
 
 @pytest.mark.django_db
