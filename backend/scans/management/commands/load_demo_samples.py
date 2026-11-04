@@ -44,12 +44,7 @@ from controlpanel.services import get_active_model_version_label
 from ...models import Scan
 from ...services.brand_policy import apply_brand_policy
 from ...services.inference import _thresholds, classify_score
-from ...services.inference_client import (
-    _BASE_KEYS,
-    _FRIENDLY_KEYS,
-    InferenceClient,
-    InferenceError,
-)
+from ...services.inference_client import InferenceClient, InferenceError
 from ...services.screenshots import prepare_screenshot
 from ...services.workflows import change_status
 from ...tasks import ScanOutcome, _store_result
@@ -60,11 +55,16 @@ GOLDEN_CSV = "golden_samples.csv"
 # Inference golden acceptance rule (contract section 5 / D8).
 TOLERANCE = 1e-4
 
-# golden_samples.csv column -> InferenceResponse friendly key. Built from the
-# SAME zip the client uses, so the comparison always matches the raw base key
-# the service returned, whatever the friendly label says.
-_CSV_TO_FRIENDLY = dict(zip(_BASE_KEYS, _FRIENDLY_KEYS))
-_EXPECTED_COLUMNS = {base: base for base in _BASE_KEYS}
+# golden_samples.csv column -> InferenceResponse friendly key. The mapping is
+# BY COLUMN NAME, never by position: mobilenet is the screenshot branch,
+# distilbert the page text, url_cnn the URL branch and metadata the signals.
+# These are the exact raw keys of the inference contract (section 2.E).
+_GOLDEN_COLUMN_TO_FRIENDLY = {
+    "mobilenet_phishing_probability": "screenshot",
+    "distilbert_phishing_probability": "page_text",
+    "url_cnn_phishing_probability": "url",
+    "metadata_phishing_probability": "metadata",
+}
 _FUSION_COLUMN = "fusion_mlp_phishing_probability"
 
 
@@ -116,12 +116,12 @@ def _parse_int(value: str) -> int | None:
 def _compare_to_golden(row: dict[str, str], inf, sample_id: str) -> list[str]:
     """Absolute 1e-4 comparison of every probability; returns the messages."""
     problems: list[str] = []
-    for base_key, column in _EXPECTED_COLUMNS.items():
+    for column, friendly in _GOLDEN_COLUMN_TO_FRIENDLY.items():
         raw = (row.get(column) or "").strip()
         if not raw:
             continue
         expected = float(raw)
-        got = inf.base_probabilities.get(_CSV_TO_FRIENDLY[base_key])
+        got = inf.base_probabilities.get(friendly)
         if got is None:
             problems.append(
                 f"MISMATCH sample {sample_id} {column}: missing (got None, "
