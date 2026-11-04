@@ -66,4 +66,4 @@ frontend/playwright-report/
 tmp_*
 # Database backups
 backup.sql
-backup_phishing.sql
+backup_phishing.sqlCOMMANDS.md
