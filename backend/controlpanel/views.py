@@ -469,7 +469,9 @@ class ApiKeyListCreateView(generics.ListCreateAPIView):
         description=(
             "Le champ `secret` n'apparaît QUE dans cette réponse de création "
             "et n'est jamais stocké (SHA-256 seulement). Portées : "
-            "`scan:create`, `scan:read`. Audit : `apikey.created` (préfixe "
+            "`scan:create`, `scan:read`, `monitor:read` (lecture seule : "
+            "`GET /api/admin/health/` et `GET /api/admin/dashboard/`). "
+            "Audit : `apikey.created` (préfixe "
             "seulement, jamais le secret)."
         ),
     )
@@ -479,7 +481,7 @@ class ApiKeyListCreateView(generics.ListCreateAPIView):
             return _error(
                 INVALID_BODY_CODE,
                 "Corps de requête invalide : name et scopes requis "
-                "(scan:create, scan:read).",
+                "(scan:create, scan:read, monitor:read).",
                 status.HTTP_400_BAD_REQUEST,
                 errors=input_serializer.errors,
             )

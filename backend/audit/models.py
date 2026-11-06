@@ -59,6 +59,13 @@ class AuditLog(models.Model):
         # unknown address is NEVER stored. Migration 0008.
         PASSWORD_RESET_REQUESTED = "password.reset_requested", "Demande de réinitialisation"
         PASSWORD_RESET_COMPLETED = "password.reset_completed", "Mot de passe réinitialisé"
+        # Outbound n8n integration (feature/n8n-events): written after the
+        # LAST failed delivery attempt. Metadata = event type + event id only
+        # (never the payload, the body or the secret).
+        INTEGRATION_DELIVERY_FAILED = (
+            "integration.delivery_failed",
+            "Échec de livraison d'un événement d'intégration",
+        )
 
     # Qui : FK (filtrage) + copie de l'email (conservée même si le compte disparaît,
     # et utilisable pour une tentative de connexion sur un email inconnu).

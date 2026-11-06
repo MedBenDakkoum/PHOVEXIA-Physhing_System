@@ -104,4 +104,17 @@ def change_status(scan: Scan, new_status: str, actor: User | None) -> Scan:
     # Write audit entry
     log_status_change(scan, transition.label_for(new_status), actor, old_status, new_status)
 
+    # Outbound n8n event: an UNCERTAIN, COMPLETE scan entering the analyst
+    # queue (a partial scan stays DETECTED and never reaches this status).
+    # Reported scans are emitted by reviews.services.report_scan, so the
+    # reason is accurate and there is no duplicate.
+    if (
+        new_status == Scan.Status.UNDER_REVIEW
+        and not scan.partial
+        and scan.verdict == "uncertain"
+    ):
+        from integrations.services import emit_scan_needs_review
+
+        emit_scan_needs_review(scan, reason="uncertain")
+
     return scan

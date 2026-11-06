@@ -139,7 +139,7 @@ export const REVIEW_SOURCE = {
 export const MODEL_VERSION_KIND = { MOCK: "Mock", ONNX: "ONNX", TORCH_BUNDLE: "Torch bundle" };
 export const MODEL_VERSION_KIND_VALUES = Object.keys(MODEL_VERSION_KIND);
 
-export const SCOPE = { "scan:create": "Créer scan", "scan:read": "Lire scan" };
+export const SCOPE = { "scan:create": "Créer scan", "scan:read": "Lire scan", "monitor:read": "Surveiller (lecture)" };
 
 export const AUDIT_ACTIONS = {
   register: "Inscription",

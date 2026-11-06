@@ -118,6 +118,9 @@ class ApiKey(models.Model):
     class Scope(models.TextChoices):
         SCAN_CREATE = "scan:create", "Create scans"
         SCAN_READ = "scan:read", "Read scans"
+        # Read-only monitoring: GET /api/admin/health/ + GET /api/admin/dashboard/
+        # ONLY (refused everywhere else). The key still acts as its owner.
+        MONITOR_READ = "monitor:read", "Read monitoring endpoints"
 
     public_id = models.UUIDField(
         "Public ID", default=uuid.uuid4, unique=True, editable=False
