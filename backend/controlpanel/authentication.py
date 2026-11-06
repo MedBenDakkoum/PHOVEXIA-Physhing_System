@@ -3,8 +3,12 @@
 Rules (spec):
 - Hash lookup (prefix-narrowed) then constant-time compare;
 - the key must be active, not revoked and not expired;
-- it authenticates ONLY `POST /api/scans/` and `GET /api/scans/{uuid}/`;
+- it authenticates ONLY the explicit (URL name, method) allowlist below;
   any OTHER endpoint refuses a key with 401 (never 403, never anonymous);
+- each allowlisted endpoint requires ONE scope: scan:create, scan:read, or
+  monitor:read (read-only health + dashboard). A scan key that lacks the
+  required scan scope gets 403; a key without monitor:read is refused with
+  401 on the monitoring endpoints (they are not in ITS allowlist);
 - the request runs as the key's OWNER, so the owner's quota and ownership
   rules apply unchanged;
 - last_used_at is stamped at most once per minute.
@@ -18,9 +22,20 @@ from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 from .models import ApiKey
 from .services.api_keys import lookup_secret, touch_last_used
 
-# (URL name, HTTP method) pairs a key may hit - url_name from scans/urls.py.
-ALLOWED_ENDPOINTS = frozenset({("scan-list", "POST"), ("scan-detail", "GET")})
-SCOPE_BY_METHOD = {"POST": ApiKey.Scope.SCAN_CREATE, "GET": ApiKey.Scope.SCAN_READ}
+# (URL name, HTTP method) -> the ONE scope required on that endpoint.
+# URL names come from scans/urls.py and controlpanel/urls.py.
+ENDPOINT_SCOPES = {
+    ("scan-list", "POST"): ApiKey.Scope.SCAN_CREATE,
+    ("scan-detail", "GET"): ApiKey.Scope.SCAN_READ,
+    ("admin-health", "GET"): ApiKey.Scope.MONITOR_READ,
+    ("admin-dashboard", "GET"): ApiKey.Scope.MONITOR_READ,
+}
+ALLOWED_ENDPOINTS = frozenset(ENDPOINT_SCOPES)
+# Monitoring read-only endpoints: a key that does not carry monitor:read is
+# refused here with 401 (same as "not in the allowlist"), never 403.
+MONITOR_ENDPOINTS = frozenset(
+    {("admin-health", "GET"), ("admin-dashboard", "GET")}
+)
 
 
 class ApiKeyAuthentication(BaseAuthentication):
@@ -61,8 +76,9 @@ class ApiKeyAuthentication(BaseAuthentication):
         endpoint = (view_name, request.method.upper())
         if endpoint not in ALLOWED_ENDPOINTS:
             raise AuthenticationFailed(
-                "Clé API refusée ici : seul POST /api/scans/ et "
-                "GET /api/scans/{uuid}/ sont acceptés."
+                "Clé API refusée ici : seuls POST /api/scans/, "
+                "GET /api/scans/{uuid}/, GET /api/admin/health/ et "
+                "GET /api/admin/dashboard/ sont acceptés."
             )
 
         key = lookup_secret(secret)
@@ -76,8 +92,14 @@ class ApiKeyAuthentication(BaseAuthentication):
         if owner is None or not owner.is_active:
             raise AuthenticationFailed("Le propriétaire de la clé est inactif.")
 
-        required_scope = SCOPE_BY_METHOD[request.method.upper()]
+        required_scope = ENDPOINT_SCOPES[endpoint]
         if required_scope not in (key.scopes or []):
+            if endpoint in MONITOR_ENDPOINTS:
+                raise AuthenticationFailed(
+                    "Clé API refusée ici : la portée « monitor:read » est "
+                    "requise pour GET /api/admin/health/ et "
+                    "GET /api/admin/dashboard/."
+                )
             raise PermissionDenied(
                 f"Clé API sans la portée requise « {required_scope} »."
             )

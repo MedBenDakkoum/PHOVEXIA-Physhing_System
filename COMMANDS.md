@@ -129,3 +129,14 @@ docker run --rm -v backend_n8n_data:/data -v "${PWD}:/backup" alpine tar xzf /ba
 ```
 
 Isolement vérifié : n8n joint `web:8000` ; `db`, `redis`, `inference` et `collector` sont injoignables depuis n8n ; n8n est injoignable depuis `collector` et `inference`. Ne jamais lancer `docker compose down -v`.
+
+Événements sortants vers n8n (image reconstruite car le code est copié dedans) :
+
+```
+cd backend
+docker compose build web
+docker compose up -d --force-recreate worker
+docker compose exec -T worker python manage.py send_test_event test.event
+docker compose logs --since 2m worker | Select-String 'integration\.'
+docker compose exec -T worker python manage.py shell -c "from audit.models import AuditLog; print(AuditLog.objects.filter(action='integration.delivery_failed').values_list('metadata', flat=True).last())"
+```

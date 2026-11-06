@@ -36,7 +36,8 @@ paths:
     post:
       operationId: admin_api_keys_create
       description: 'Le champ `secret` n''apparaît QUE dans cette réponse de création
-        et n''est jamais stocké (SHA-256 seulement). Portées : `scan:create`, `scan:read`.
+        et n''est jamais stocké (SHA-256 seulement). Portées : `scan:create`, `scan:read`,
+        `monitor:read` (lecture seule : `GET /api/admin/health/` et `GET /api/admin/dashboard/`).
         Audit : `apikey.created` (préfixe seulement, jamais le secret).'
       summary: Créer une clé API (US54)
       tags:
@@ -452,6 +453,7 @@ paths:
           - blocklist_add
           - blocklist_remove
           - decision
+          - integration.delivery_failed
           - login_failed
           - login_success
           - model.activated
@@ -497,6 +499,7 @@ paths:
           * `apikey.revoked` - Révocation d'une clé API
           * `password.reset_requested` - Demande de réinitialisation
           * `password.reset_completed` - Mot de passe réinitialisé
+          * `integration.delivery_failed` - Échec de livraison d'un événement d'intégration
       - in: query
         name: date_from
         schema:
@@ -2217,6 +2220,7 @@ components:
       - apikey.revoked
       - password.reset_requested
       - password.reset_completed
+      - integration.delivery_failed
       type: string
       description: |-
         * `register` - Inscription
@@ -2245,6 +2249,7 @@ components:
         * `apikey.revoked` - Révocation d'une clé API
         * `password.reset_requested` - Demande de réinitialisation
         * `password.reset_completed` - Mot de passe réinitialisé
+        * `integration.delivery_failed` - Échec de livraison d'un événement d'intégration
     AdminError:
       type: object
       description: '400/404/409 body: machine-readable `code` + human `detail` (schema
@@ -2553,7 +2558,6 @@ components:
         is_active:
           type: boolean
           readOnly: true
-          default: true
           title: Active
         removed_by_email:
           type: string
@@ -4009,10 +4013,12 @@ components:
       enum:
       - scan:create
       - scan:read
+      - monitor:read
       type: string
       description: |-
         * `scan:create` - Create scans
         * `scan:read` - Read scans
+        * `monitor:read` - Read monitoring endpoints
     TokenObtainPair:
       type: object
       properties:

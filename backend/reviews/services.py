@@ -88,7 +88,8 @@ def report_scan(
             raise AlreadyReported(str(locked.public_id))
         if locked.status not in REPORTABLE_STATUSES:
             raise NotReportable(locked.status)
-        if locked.status == Scan.Status.DETECTED:
+        moved_to_review = locked.status == Scan.Status.DETECTED
+        if moved_to_review:
             change_status(locked, Scan.Status.UNDER_REVIEW, actor=reporter)
         try:
             report = Report.objects.create(
@@ -106,6 +107,10 @@ def report_scan(
             target=locked,
             metadata={"claimed_label": claimed_label},
         )
+        if moved_to_review and not locked.partial:
+            from integrations.services import emit_scan_needs_review
+
+            emit_scan_needs_review(locked, reason="reported")
     return report
 
 
@@ -198,6 +203,11 @@ def submit_decision(
             )
             # The scan still moves to BLOCKED (the domain is blocked either way).
             change_status(locked, Scan.Status.BLOCKED, actor=analyst)
+        # Outbound n8n event: only a confirmed phishing decision (US34).
+        if decision == DECISION_CONFIRM_PHISHING:
+            from integrations.services import emit_scan_confirmed
+
+            emit_scan_confirmed(locked)
     return locked
 
 

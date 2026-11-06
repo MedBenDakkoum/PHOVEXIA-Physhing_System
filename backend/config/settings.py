@@ -1,6 +1,7 @@
 import logging
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 
 from celery.schedules import crontab
 from django.core.exceptions import ImproperlyConfigured
@@ -251,6 +252,8 @@ INSTALLED_APPS = [
     # Step 13 (US5, US56, US57): templated email delivery (service + Celery
     # task + templates). No models, no URLs.
     'emails',
+    # Outbound n8n events (feature/n8n-events): no models, no URLs.
+    'integrations',
 ]
 
 MIDDLEWARE = [
@@ -465,6 +468,34 @@ MAILERS = {
 
 # Frontend base URL used in the password-reset link (no trailing slash).
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173").rstrip("/")
+
+# --- n8n outbound integration -------------------------------------------
+# N8N_WEBHOOK_BASE_URL empty = feature disabled (emit_event is a no-op).
+# When set, N8N_WEBHOOK_SECRET is REQUIRED: without it the HMAC signature
+# would be forgeable. The destination host is FIXED here; no scan/request
+# field can ever choose it. Plain http is accepted for the local compose
+# network; production should use https.
+N8N_WEBHOOK_BASE_URL = (os.getenv("N8N_WEBHOOK_BASE_URL") or "").strip().rstrip("/")
+N8N_WEBHOOK_SECRET = (os.getenv("N8N_WEBHOOK_SECRET") or "").strip()
+if N8N_WEBHOOK_BASE_URL:
+    _webhook_base = urlparse(N8N_WEBHOOK_BASE_URL)
+    if _webhook_base.scheme not in {"http", "https"} or not _webhook_base.netloc:
+        raise ImproperlyConfigured(
+            "Invalid N8N_WEBHOOK_BASE_URL: expected an absolute http(s) URL "
+            "(example: http://n8n:5678)."
+        )
+    if _webhook_base.username or _webhook_base.password:
+        raise ImproperlyConfigured(
+            "Invalid N8N_WEBHOOK_BASE_URL: credentials are not allowed in "
+            "the webhook base URL."
+        )
+    if not N8N_WEBHOOK_SECRET:
+        raise ImproperlyConfigured(
+            "N8N_WEBHOOK_SECRET is required when N8N_WEBHOOK_BASE_URL is set: "
+            "it signs every delivered event (HMAC-SHA256). Set it in "
+            "backend/.env (never committed) or leave the base URL empty to "
+            "disable the integration."
+        )
 # Step 13 / US5: validity of a reset token, in seconds (Django reads this
 # setting in PasswordResetTokenGenerator.check_token).
 PASSWORD_RESET_TIMEOUT = _positive_int_env("PASSWORD_RESET_TIMEOUT", 3600)
