@@ -141,6 +141,10 @@ jobs:
   docker:
     name: docker compose config + image build
     runs-on: ubuntu-latest
+    env:
+      # Throwaway value: compose requires it to interpolate services.n8n,
+      # and .env.example intentionally leaves it empty for real deployments.
+      N8N_ENCRYPTION_KEY: ci-throwaway-n8n-encryption-key-not-a-real-secret
     steps:
       - uses: actions/checkout@v6
 

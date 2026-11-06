@@ -80,3 +80,52 @@ docker compose -f docker-compose.yml -f ..\collector\docker-compose.collector.ym
 ```
 
 Ne jamais utiliser `docker compose down -v` : cela détruit les volumes de la base et des médias.
+
+## n8n (automatisation des workflows)
+
+Éditeur : `http://127.0.0.1:5678` — compte owner créé à la première ouverture, aucun basic-auth.
+
+Image épinglée : `docker.n8n.io/n8nio/n8n:2.46.6` (profil `full`, réseau `automation_net` uniquement).
+
+Démarrer ou recréer n8n avec `web` et `worker` (nécessaire pour qu'ils rejoignent `automation_net`) :
+
+```
+cd backend
+docker compose -f docker-compose.yml -f ..\collector\docker-compose.collector.yml --profile full up -d --no-deps web worker n8n
+```
+
+Suivre les logs :
+
+```
+cd backend
+docker compose -f docker-compose.yml -f ..\collector\docker-compose.collector.yml logs -f --tail=100 n8n
+```
+
+Vérifier la santé de n8n depuis le conteneur :
+
+```
+cd backend
+docker compose -f docker-compose.yml -f ..\collector\docker-compose.collector.yml exec -T n8n node -e "fetch('http://127.0.0.1:5678/healthz').then(r=>console.log(r.status))"
+```
+
+Exporter un workflow depuis l'éditeur vers `n8n/workflows/` (JSON), puis vérifier :
+
+```
+Get-ChildItem ..\n8n\workflows
+```
+
+Sauvegarder le volume `n8n_data` sans le supprimer :
+
+```
+cd backend
+docker run --rm -v backend_n8n_data:/data -v "${PWD}:/backup" alpine tar czf /backup/n8n_data_backup.tar.gz -C /data .
+```
+
+Restaurer cette sauvegarde :
+
+```
+cd backend
+docker run --rm -v backend_n8n_data:/data -v "${PWD}:/backup" alpine tar xzf /backup/n8n_data_backup.tar.gz -C /data
+```
+
+Isolement vérifié : n8n joint `web:8000` ; `db`, `redis`, `inference` et `collector` sont injoignables depuis n8n ; n8n est injoignable depuis `collector` et `inference`. Ne jamais lancer `docker compose down -v`.

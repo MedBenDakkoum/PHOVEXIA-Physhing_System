@@ -149,6 +149,11 @@ services:
       - media_volume:/app/media:ro
       # Golden samples (git-ignored bundle): READ-ONLY, demo_setup only.
       - ${DEMO_SAMPLES_DIR:-./ml_artifacts/golden}:/app/demo_samples:ro
+    # automation_net is shared ONLY with n8n and the worker: n8n calls
+    # http://web:8000, and no other service ever sees the automation network.
+    networks:
+      - default
+      - automation_net
     expose:
       - "8000"
     depends_on:
@@ -188,6 +193,11 @@ services:
       # (not in web): it writes demo screenshots under media_volume, and web
       # mounts /app/media read-only on purpose (gunicorn never writes).
       - ${DEMO_SAMPLES_DIR:-./ml_artifacts/golden}:/app/demo_samples:ro
+    # automation_net: the worker shares it with web and n8n (n8n may trigger
+    # scans through the API); collect_net still comes from the collector overlay.
+    networks:
+      - default
+      - automation_net
     # The image HEALTHCHECK probes :8000 (gunicorn): meaningless for a
     # worker, so it is disabled here instead of staying "unhealthy".
     healthcheck:
@@ -244,6 +254,55 @@ services:
       start_period: 15s
       retries: 5
     restart: unless-stopped
+
+  # ========================= n8n (automation, US-Could) ================
+  # Self-hosted workflow automation, isolated on automation_net ONLY.
+  # It shares that bridge with `web` and `worker`; it is deliberately NOT
+  # on the default network (no route to db / redis / inference) and NOT on
+  # collect_net. Its own database lives in the n8n_data volume (SQLite).
+  # The owner account is created in the editor on first visit: no legacy
+  # basic-auth variables are used.
+  # Tag pinned to the latest stable release (2026-11-04): no "latest".
+  n8n:
+    profiles: ["full"]
+    image: docker.n8n.io/n8nio/n8n:2.46.6
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5678:5678"
+    environment:
+      # REQUIRED: compose refuses to start with a clear message when empty.
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?N8N_ENCRYPTION_KEY must be set in .env}
+      # Access URL for the local plain-HTTP editor + webhooks.
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_PORT: ${N8N_PORT:-5678}
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
+      N8N_WEBHOOK_URL: ${N8N_WEBHOOK_URL:-http://localhost:5678/}
+      # Listen on IPv4 so other containers can reach http://n8n:5678.
+      N8N_LISTEN_ADDRESS: "0.0.0.0"
+      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-Africa/Tunis}
+      # Plain HTTP locally only: secure cookies would require HTTPS.
+      N8N_SECURE_COOKIE: "false"
+      # No telemetry, no new-version notifications.
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
+      # Keep 7 days of execution data (168 hours).
+      EXECUTIONS_DATA_PRUNE: "true"
+      EXECUTIONS_DATA_MAX_AGE: "168"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    networks:
+      - automation_net
+    mem_limit: "1g"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:5678/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      start_period: 60s
+      retries: 5
 
   # ======================= inference service (US26) ===================
   # Separate CPU FastAPI service (PyTorch). The bundle (backend/ml_artifacts)
@@ -303,3 +362,10 @@ volumes:
   static_volume:
   models_volume:
   media_volume:
+  n8n_data:
+
+networks:
+  # Bridge shared ONLY by n8n, web and worker. n8n never joins `default`,
+  # so it cannot resolve or reach db, redis, inference or the collector.
+  automation_net:
+    driver: bridge
